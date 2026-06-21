@@ -1,0 +1,112 @@
+:root {
+    --primary-color: #0d6efd;
+    --bg-azure: #f0f8ff;
+    --dark-footer: #212529;
+    --fb-color: #1877f2;
+    --ig-color: #e1306c;
+    --tt-color: #000000;
+}
+
+body {
+    background-color: var(--bg-azure);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    font-size: 1.6rem;
+    color: var(--primary-color) !important;
+}
+
+.custom-card {
+    background-color: #ffffff; 
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: none;
+}
+
+/* Efecto de elevación al pasar el mouse */
+.custom-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+#contactos a[href*="facebook.com"], 
+#contactos a[href*="instagram.com"], 
+#contactos a[href*="tiktok.com"] {
+    display: inline-block;
+    padding: 6px 16px;
+    margin: 4px;
+    border-radius: 20px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#contactos a[href*="facebook.com"] {
+    color: var(--fb-color);
+    border: 2px solid var(--fb-color);
+}
+#contactos a[href*="facebook.com"]:hover {
+    background-color: var(--fb-color);
+    color: white;
+    transform: scale(1.05);
+}
+
+#contactos a[href*="instagram.com"] {
+    color: var(--ig-color);
+    border: 2px solid var(--ig-color);
+}
+#contactos a[href*="instagram.com"]:hover {
+    background-color: var(--ig-color);
+    color: white;
+    transform: scale(1.05);
+}
+
+#contactos a[href*="tiktok.com"] {
+    color: var(--tt-color);
+    border: 2px solid var(--tt-color);
+}
+#contactos a[href*="tiktok.com"]:hover {
+    background-color: var(--tt-color);
+    color: white;
+    transform: scale(1.05);
+}
+
+footer {
+    background-color: var(--dark-footer);
+    color: #ffffff;
+}
+
+footer a {
+    color: #f8f9fa;
+    text-decoration: underline;
+}
+
+footer a:hover {
+    color: var(--primary-color);
+}
+
+@media (max-width: 768px) {
+    h1, .h1 {
+        font-size: 1.8rem;
+    }
+    
+    h2, .h2, .fs-2 {
+        font-size: 1.4rem !important;
+    }
+    
+    h3, .h3 {
+        font-size: 1.2rem;
+    }
+    
+    .navbar-brand {
+        font-size: 1.4rem;
+        margin-right: auto;
+    }
+    
+    #inicio {
+        padding: 2.5rem 1.5rem !important;
+    }
+}
