@@ -25,7 +25,6 @@ body {
     border: none;
 }
 
-/* Efecto de elevación al pasar el mouse */
 .custom-card:hover {
     transform: translateY(-5px);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
@@ -86,6 +85,16 @@ footer a {
 
 footer a:hover {
     color: var(--primary-color);
+}
+
+footer hr {
+    border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.text-muted-footer {
+    color: #a0a0a0 !important;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
 }
 
 @media (max-width: 768px) {
