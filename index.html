@@ -7,7 +7,7 @@
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     
-    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="resources/css/styles.css">
 </head>
 <body>
  
@@ -23,6 +23,7 @@
                         <li class="nav-item"><a class="nav-link" href="#inicio">Inicio</a></li>
                         <li class="nav-item"><a class="nav-link" href="#quienes-somos">Quiénes Somos</a></li>
                         <li class="nav-item"><a class="nav-link" href="#servicios">Servicios</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#gestion-recursos">Gestión de Recursos</a></li>
                         <li class="nav-item"><a class="nav-link" href="#contactos">Contactos</a></li>
                     </ul>
                 </div>
@@ -32,7 +33,7 @@
  
     <main class="container my-4 p-3">
         
-        <section id="inicio" class="text-center p-5 bg-white rounded shadow-sm my-4 m-3">
+        <section id="inicio" class="text-center bg-white rounded shadow-sm m-3 p-3">
             <h2 class="mb-4 text-primary fw-bold fs-2">Inicio</h2> 
             <p class="lead text-muted mx-auto" style="max-width: 800px;">
                 Bienvenido a TechManager, una plataforma diseñada para la administración y monitoreo de recursos tecnológicos en empresas e instituciones.
@@ -40,23 +41,23 @@
             <a href="#servicios" class="btn btn-primary btn-lg mt-3">Explorar Servicios</a>
         </section>
         
-        <section id="quienes-somos" class="my-5 p-4 bg-white rounded shadow-sm m-3">
+        <section id="quienes-somos" class="bg-white rounded shadow-sm m-3 p-3">
             <h2 class="text-center mb-4 text-primary fw-bold fs-2">Quiénes Somos</h2>
             <div class="row align-items-center g-4">
                 <div class="col-md-7">
                     <article>
                         <p class="text-secondary" style="text-align: justify; line-height: 1.8;">
-                            TechManager es una plataforma tecnológica desarrollada con el propósito de facilitar la administración y monitoreo de recursos informáticos en empresas, instituciones educativas y organizaciones de diferentes sectores. Nuestro sistema permite gestionar inventarios de hardware y software, supervisar el estado de equipos tecnológicos, controlar licencias y generar reportes que apoyen la toma de decisiones. Además, busca optimizar los procesos internos mediante herramientas modernas que incrementan la productividad y mejoran la seguridad de la información. TechManager se enfoca en ofrecer soluciones eficientes, accesibles y confiables, adaptándose a las necesidades de cada usuario y contribuyendo al crecimiento digital de las organizaciones en un entorno tecnológico en constante evolución.
+                            TechManager es una plataforma tecnológica desarrollada con el propósito de facilitar la administración y monitoreo de recursos informáticos en empresas, instituciones educativas y organizaciones de diferentes sectores. Nuestro system permite gestionar inventarios de hardware y software, supervisar el estado de equipos tecnológicos, controlar licencias y generar reportes que apoyen la toma de decisiones. Además, busca optimizar los procesos internos mediante herramientas modernas que incrementan la productividad y mejoran la seguridad de la información. TechManager se enfoca en ofrecer soluciones eficientes, accesibles y confiables, adaptándose a las necesidades de cada usuario y contribuyendo al crecimiento digital de las organizaciones en un entorno tecnológico en constante evolución.
                         </p>
                     </article>
                 </div>
                 <div class="col-md-5 text-center">
-                    <img src="image/TechManager.jpg" alt="Tecnología de la Información" class="img-fluid rounded shadow">
+                    <img src="resources/image/TechManager.jpg" alt="Tecnología de la Información" class="img-fluid rounded shadow">
                 </div>
             </div>
         </section>
  
-        <section id="servicios" class="my-5 m-3">
+        <section id="servicios" class="m-3 p-3">
             <h2 class="text-center mb-4 text-primary fw-bold fs-2">Servicios</h2>
             <div class="row g-4">
                 <div class="col-md-4">
@@ -101,25 +102,70 @@
                 </div>
             </div>
         </section>
+
+        <section id="gestion-recursos" class="bg-white rounded shadow-sm m-3 p-3">
+            <h2 class="text-center mb-4 text-primary fw-bold fs-2">Gestión de Recursos Tecnológicos</h2>
+            
+            <div class="row g-4">
+                <div class="col-md-5">
+                    <div class="card p-3 border-0 bg-light shadow-sm">
+                        <h4 class="text-secondary mb-3">Registrar Recurso</h4>
+                        
+                        <div id="mensaje-alerta"></div>
+                        
+                        <form id="form-recurso">
+                            <div class="mb-3">
+                                <label for="recurso-nombre" class="form-label">Nombre del Recurso</label>
+                                <input type="text" class="form-control" id="recurso-nombre" placeholder="Ej. Servidor Dell PowerEdge">
+                            </div>
+                            <div class="mb-3">
+                                <label for="recurso-descripcion" class="form-label">Descripción</label>
+                                <textarea class="form-control" id="recurso-descripcion" rows="2" placeholder="Ej. Servidor principal de base de datos"></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label for="recurso-categoria" class="form-label">Categoría / Tipo</label>
+                                <select class="form-select" id="recurso-categoria">
+                                    <option value="" selected disabled>Seleccione una categoría</option>
+                                    <option value="Hardware">Hardware</option>
+                                    <option value="Software">Software</option>
+                                    <option value="Redes">Redes</option>
+                                    <option value="Licencias">Licencias</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Agregar Recurso</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="col-md-7">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h4 class="text-secondary m-0">Recursos Registrados</h4>
+                        <span class="badge bg-primary fs-5">Total: <span id="total-registros">0</span></span>
+                    </div>
+                    
+                    <div id="lista-recursos" class="row g-3"></div>
+                </div>
+            </div>
+        </section>
  
-        <section id="contactos" class="my-5 p-4 bg-white rounded shadow-sm text-center m-3">
+        <section id="contactos" class="bg-white rounded shadow-sm text-center m-3 p-3">
             <h2 class="text-primary fw-bold fs-2">Contactos</h2>
             <div class="my-4 p-3 text-center">
-                <p class="lead text-muted"><strong>Correo electrónico:</strong> <a href="mailto:contacto@techmanager.com" class="text-decoration-none d-block text-break">contacto@techmanager.com</a></p>
-                <p class="lead text-muted"><strong>Teléfono:</strong> +593 99 123 4567</p>
-                <p class="lead text-muted"><strong>Dirección:</strong> Machala, El Oro, Ecuador</p>
-                
+                <p class="fs-6 fs-md-5 text-muted"><strong>Correo electrónico:</strong> <a href="mailto:andresorellana305@gmail.com" class="text-decoration-none d-inline-block text-break">andresorellana305@gmail.com</a></p>
+                <p class="fs-6 fs-md-5 text-muted"><strong>Teléfono:</strong> +593 99 642 6896</p>
+                <p class="fs-6 fs-md-5 text-muted"><strong>Dirección:</strong> Machala, El Oro, Ecuador</p>
+                 
                 <div class="mx-auto my-4 text-start" style="max-width: 700px;">
                     <div class="ratio ratio-21x9 rounded shadow-sm overflow-hidden">
-                        <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3979.1324702008455!2d-79.9619!3d-3.2681!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zM8KwMTYwNS4yIlMgNznCsDU3JzQyLjgiVw!5e0!3m2!1ses!2sec!4v1700000000000!5m2!1ses!2sec" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                       <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d248.96116965402123!2d-79.96214121580122!3d-3.2557357209299496!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x90330e57ad65e1b5%3A0x3223ffd7ee2f5593!2sCorporaci%C3%B3n%20Nacional%20de%20Telecomunicaciones!5e0!3m2!1ses!2sec!4v1782594963960!5m2!1ses!2sec" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
                     </div>
                 </div>
 
                 <p class="mt-4">
                     <strong class="d-block mb-3 text-dark">Redes sociales:</strong>
-                    <a href="https://www.facebook.com/techmanager" target="_blank">Facebook</a>
+                    <a href="https://www.facebook.com/techmanager55?locale=es_LA" target="_blank">Facebook</a>
                     <a href="https://www.instagram.com/techmanager" target="_blank">Instagram</a>
-                    <a href="https://www.tiktok.com/techmanager" target="_blank">TikTok</a>
+                    <a href="https://www.tiktok.com/@techmanager.oficial" target="_blank">TikTok</a>
                 </p>
             </div>
 
@@ -151,7 +197,7 @@
             </div>
         </section>
 
-        <section class="text-center p-4 bg-white rounded shadow-sm mt-4 mb-4 m-3">
+        <section class="text-center bg-white rounded shadow-sm m-3 p-3">
             <h2 class="text-primary fw-bold mb-4 fs-2">Video Informativo</h2>
             <div class="mx-auto text-start" style="max-width: 700px;">
                 <div class="ratio ratio-16x9 rounded shadow-sm overflow-hidden">
@@ -160,7 +206,7 @@
             </div>
         </section>
  
-        <aside class="mx-auto mb-4 p-4 bg-light text-center rounded border m-3" style="max-width: 600px;">
+        <aside class="mx-auto bg-light text-center rounded border m-3 p-3" style="max-width: 600px;">
             <h3 class="fw-bold text-primary">Horarios de Atención</h3>
             <p class="mb-1"><strong>Lunes a Viernes:</strong> 08:00 - 17:00</p>
             <p class="mb-1"><strong>Sábados:</strong> 09:00 - 13:00</p>
@@ -173,12 +219,12 @@
         <div class="container">
             <p class="mb-1">Desarrollado por Fausto Orellana</p>
             <p class="mb-1">Desarrollo de Aplicaciones Web (B)</p>
-            <p class="mb-2">2026</p>
             <hr class="my-2 mx-auto" style="max-width: 250px;">
-            <p class="mb-0 small text-muted-footer">© Todos los derechos reservados</p>
+            <p class="mb-0 small text-muted-footer">© 2026 Todos los derechos reservados</p>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+    <script src="resources/js/script.js"></script>
 </body>
 </html>
