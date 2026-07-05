@@ -11,17 +11,80 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let totalCreados = 0;
 
+    function validarNombre() {
+        const valor = inputNombre.value.trim();
+        if (valor.length >= 3) {
+            marcarValido(inputNombre);
+            return true;
+        } else {
+            marcarInvalido(inputNombre);
+            return false;
+        }
+    }
+
+    function validarDescripcion() {
+        const valor = inputDescripcion.value.trim();
+        if (valor.length >= 10) {
+            marcarValido(inputDescripcion);
+            return true;
+        } else {
+            marcarInvalido(inputDescripcion);
+            return false;
+        }
+    }
+
+    function validarCategoria() {
+        const valor = selectCategoria.value;
+        if (valor !== "") {
+            marcarValido(selectCategoria);
+            return true;
+        } else {
+            marcarInvalido(selectCategoria);
+            return false;
+        }
+    }
+
+    function marcarValido(elemento) {
+        elemento.classList.remove("is-invalid");
+        elemento.classList.add("is-valid");
+    }
+
+    function marcarInvalido(elemento) {
+        elemento.classList.remove("is-valid");
+        elemento.classList.add("is-invalid");
+    }
+
+    function limpiarEstilosValidacion() {
+        const elementos = [inputNombre, inputDescripcion, selectCategoria];
+        elementos.forEach(el => {
+            el.classList.remove("is-valid", "is-invalid");
+        });
+    }
+
+    inputNombre.addEventListener("input", validarNombre);
+    inputNombre.addEventListener("blur", validarNombre);
+
+    inputDescripcion.addEventListener("input", validarDescripcion);
+    inputDescripcion.addEventListener("blur", validarDescripcion);
+
+    selectCategoria.addEventListener("change", validarCategoria);
+    selectCategoria.addEventListener("blur", validarCategoria);
+
     formRecurso.addEventListener("submit", (event) => {
-        event.preventDefault();
+        event.preventDefault(); 
+
+        const esNombreValido = validarNombre();
+        const esDescripcionValida = validarDescripcion();
+        const esCategoriaValida = validarCategoria();
+
+        if (!esNombreValido || !esDescripcionValida || !esCategoriaValida) {
+            mostrarMensaje("Por favor, corrige los errores en el formulario antes de continuar.", "danger");
+            return;
+        }
 
         const nombre = inputNombre.value.trim();
         const descripcion = inputDescripcion.value.trim();
         const categoria = selectCategoria.value;
-
-        if (nombre === "" || descripcion === "" || categoria === "") {
-            mostrarMensaje("Por favor, complete todos los campos del formulario.", "danger");
-            return;
-        }
 
         mostrarMensaje("¡Recurso tecnológico registrado correctamente!", "success");
 
@@ -53,11 +116,11 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         contenedorLista.appendChild(colDiv);
-
         totalCreados++;
         contadorTotal.innerText = totalCreados;
 
         formRecurso.reset();
+        limpiarEstilosValidacion();
     });
 
     function mostrarMensaje(mensaje, tipo) {

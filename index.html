@@ -113,14 +113,16 @@
                         
                         <div id="mensaje-alerta"></div>
                         
-                        <form id="form-recurso">
+                        <form id="form-recurso" novalidate>
                             <div class="mb-3">
                                 <label for="recurso-nombre" class="form-label">Nombre del Recurso</label>
                                 <input type="text" class="form-control" id="recurso-nombre" placeholder="Ej. Servidor Dell PowerEdge">
+                                <div class="invalid-feedback">El nombre debe tener al menos 3 caracteres.</div>
                             </div>
                             <div class="mb-3">
                                 <label for="recurso-descripcion" class="form-label">Descripción</label>
                                 <textarea class="form-control" id="recurso-descripcion" rows="2" placeholder="Ej. Servidor principal de base de datos"></textarea>
+                                <div class="invalid-feedback">La descripción debe tener al menos 10 caracteres para ser suficiente.</div>
                             </div>
                             <div class="mb-3">
                                 <label for="recurso-categoria" class="form-label">Categoría / Tipo</label>
@@ -131,6 +133,7 @@
                                     <option value="Redes">Redes</option>
                                     <option value="Licencias">Licencias</option>
                                 </select>
+                                <div class="invalid-feedback">Por favor, seleccione una categoría válida.</div>
                             </div>
                             <button type="submit" class="btn btn-primary w-100">Agregar Recurso</button>
                         </form>
