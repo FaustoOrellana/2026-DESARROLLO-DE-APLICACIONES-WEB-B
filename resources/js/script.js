@@ -13,24 +13,138 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function validarNombre() {
         const valor = inputNombre.value.trim();
-        if (valor.length >= 3) {
-            marcarValido(inputNombre);
-            return true;
-        } else {
+        
+        const cantidadLetras = (valor.match(/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/g) || []).length;
+        if (cantidadLetras < 2) {
             marcarInvalido(inputNombre);
+            inputNombre.nextElementSibling.innerText = "El nombre del recurso debe contener al menos 2 letras.";
             return false;
         }
+
+        if (valor.length > 50) {
+            marcarInvalido(inputNombre);
+            inputNombre.nextElementSibling.innerText = "El nombre no puede superar los 50 caracteres.";
+            return false;
+        }
+
+        if (/(.{3,})\1/i.test(valor)) {
+            marcarInvalido(inputNombre);
+            inputNombre.nextElementSibling.innerText = "Evita secuencias de texto o números repetidos.";
+            return false;
+        }
+
+        const palabras = valor.split(/\s+/);
+        for (let palabra of palabras) {
+            if (palabra.length > 15) {
+                marcarInvalido(inputNombre);
+                inputNombre.nextElementSibling.innerText = "Por favor, evita ingresar palabras excesivamente largas.";
+                return false;
+            }
+            
+            const tieneConsonantesExcesivas = /[bcdfghjklmnñpqrstvwxyz]{4,}/i.test(palabra);
+            // Detecta palabras de 3 o más letras que no tengan ninguna vocal
+            const noTieneVocales = palabra.length >= 3 && !/[aeiouáéíóúü]/i.test(palabra);
+
+            if (tieneConsonantesExcesivas || noTieneVocales) {
+                marcarInvalido(inputNombre);
+                inputNombre.nextElementSibling.innerText = "Por favor, ingresa un nombre legible y coherente.";
+                return false;
+            }
+        }
+
+        const textoLimpio = valor.replace(/\s/g, "").toLowerCase();
+        const cambiosAlfaNumericos = (textoLimpio.match(/[a-z][0-9]|[0-9][a-z]/g) || []).length;
+        if (cambiosAlfaNumericos > 3) {
+            marcarInvalido(inputNombre);
+            inputNombre.nextElementSibling.innerText = "Por favor, ingresa un nombre de recurso válido y legible.";
+            return false;
+        }
+
+        const caracteresRaros = (textoLimpio.match(/[ghjkwxz]/g) || []).length;
+        if (caracteresRaros / textoLimpio.length > 0.60) {
+            marcarInvalido(inputNombre);
+            inputNombre.nextElementSibling.innerText = "El nombre contiene una combinación de letras inválida.";
+            return false;
+        }
+
+        const regexNombreBase = /^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\-\.\_]+$/;
+        if (!regexNombreBase.test(valor)) {
+            marcarInvalido(inputNombre);
+            inputNombre.nextElementSibling.innerText = "El nombre no debe contener caracteres especiales.";
+            return false;
+        }
+
+        marcarValido(inputNombre);
+        return true;
     }
 
     function validarDescripcion() {
         const valor = inputDescripcion.value.trim();
-        if (valor.length >= 10) {
-            marcarValido(inputDescripcion);
-            return true;
-        } else {
+
+        if (valor.length < 10) {
             marcarInvalido(inputDescripcion);
+            inputDescripcion.nextElementSibling.innerText = "La descripción debe tener al menos 10 caracteres.";
             return false;
         }
+
+        if (/(.{3,})\1/i.test(valor)) {
+            marcarInvalido(inputDescripcion);
+            inputDescripcion.nextElementSibling.innerText = "Evita repetir secuencias de letras sin sentido.";
+            return false;
+        }
+
+        const letras = valor.replace(/\s/g, "").toLowerCase();
+        const conteoLetras = {};
+        for (let l of letras) {
+            conteoLetras[l] = (conteoLetras[l] || 0) + 1;
+            if (conteoLetras[l] / letras.length > 0.40) {
+                marcarInvalido(inputDescripcion);
+                inputDescripcion.nextElementSibling.innerText = "Por favor, ingresa un texto real y no letras al azar.";
+                return false;
+            }
+        }
+
+        const caracteresRaros = (letras.match(/[ghjkwxz]/g) || []).length;
+        if (caracteresRaros / letras.length > 0.35) { 
+            marcarInvalido(inputDescripcion);
+            inputDescripcion.nextElementSibling.innerText = "El texto contiene combinaciones de letras inválidas.";
+            return false;
+        }
+        
+        const palabras = valor.split(/\s+/);
+
+        if (palabras.length === 1) {
+            marcarInvalido(inputDescripcion);
+            inputDescripcion.nextElementSibling.innerText = "Por favor, estructura la descripción con al menos 2 palabras.";
+            return false;
+        }
+
+        const tienePalabraContundente = palabras.some(p => p.length >= 5);
+        if (!tienePalabraContundente) {
+            marcarInvalido(inputDescripcion);
+            inputDescripcion.nextElementSibling.innerText = "Por favor, ingresa una descripción más detallada y con palabras reales.";
+            return false;
+        }
+
+        for (let palabra of palabras) {
+            if (palabra.length > 15) {
+                marcarInvalido(inputDescripcion);
+                inputDescripcion.nextElementSibling.innerText = "Por favor, evita palabras excesivamente largas o falsas.";
+                return false;
+            }
+            
+            const tieneConsonantesExcesivas = /[bcdfghjklmnñpqrstvwxyz]{4,}/i.test(palabra);
+            const noTieneVocales = palabra.length >= 3 && !/[aeiouáéíóúü]/i.test(palabra);
+
+            if (tieneConsonantesExcesivas || noTieneVocales) {
+                marcarInvalido(inputDescripcion);
+                inputDescripcion.nextElementSibling.innerText = "Por favor, ingresa palabras legibles y coherentes.";
+                return false;
+            }
+        }
+
+        marcarValido(inputDescripcion);
+        return true;
     }
 
     function validarCategoria() {
