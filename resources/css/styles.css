@@ -1,136 +1,191 @@
 :root {
-    --primary-color: #0d6efd;
-    --bg-azure: #f0f8ff;
-    --dark-footer: #212529;
+    --primary-color: #0252cf;       /* Azul tecnológico premium */
+    --primary-soft: #edf4ff;        /* Fondo azul suave para badges */
+    --bg-azure: #f8fafc;            /* Gris azulado ultra limpio para el body */
+    --dark-footer: #0f172a;         /* Gris pizarra oscuro sofisticado */
     --fb-color: #1877f2;
-    --ig-color: #e1306c;
-    --tt-color: #000000;
+    --ig-color: #f11370;
+    --tt-color: #0f1419;
+    --text-dark: #1e293b;
+    --text-muted: #64748b;
+    --border-color: #e2e8f0;
 }
 
 body {
     background-color: var(--bg-azure);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color: var(--text-dark);
+    -webkit-font-smoothing: antialiased;
 }
 
+/* Navbar Premium */
+.navbar-custom {
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+}
 .navbar-brand {
     font-weight: 700;
-    font-size: 1.6rem;
+    font-size: 1.4rem;
     color: var(--primary-color) !important;
 }
+.brand-icon {
+    background: var(--primary-color);
+    color: white;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    font-size: 0.95rem;
+}
+.navbar-nav .nav-link {
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 0.925rem;
+    padding: 0.5rem 1rem !important;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+.navbar-nav .nav-link:hover, .navbar-nav .nav-link.active {
+    color: var(--primary-color) !important;
+    background-color: var(--primary-soft);
+}
 
+/* Secciones y Sombreados Modernos */
+.shadow-xs {
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 2px 8px -1px rgba(15, 23, 42, 0.02) !important;
+}
+.bg-soft-primary {
+    background-color: var(--primary-soft) !important;
+}
+
+/* Hero Section Refinada */
+.hero-section {
+    background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+    border: 1px solid var(--border-color);
+    padding: 4rem 1.5rem !important;
+}
+
+/* Efecto de Tarjetas de Servicios e Inventario */
 .custom-card {
     background-color: #ffffff; 
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    border: none;
+    border: 1px solid var(--border-color);
+    border-radius: 16px !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 .custom-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -4px rgba(15, 23, 42, 0.06) !important;
+    border-color: #cbd5e1;
+}
+.service-icon-box {
+    width: 44px;
+    height: 44px;
+    background: var(--primary-soft);
+    color: var(--primary-color);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
 }
 
-#contactos a[href*="facebook.com"], 
-#contactos a[href*="instagram.com"], 
-#contactos a[href*="tiktok.com"] {
-    display: inline-block;
-    padding: 6px 16px;
-    margin: 4px;
-    border-radius: 20px;
+/* Formularios de alta gama */
+.form-control-custom {
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    padding: 0.65rem 0.85rem;
+    font-size: 0.925rem;
+    transition: all 0.15s ease-in-out;
+    background-color: #fff;
+}
+.form-control-custom:focus {
+    box-shadow: 0 0 0 3px rgba(2, 82, 207, 0.12);
+    border-color: var(--primary-color);
+}
+
+/* Contadores e Indicadores */
+.badge-counter {
+    background-color: var(--primary-color);
+    color: white;
+}
+.card-dinamica {
+    border-radius: 12px !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+/* Botones de Redes Sociales de Diseñador */
+.social-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 18px;
+    border-radius: 50px;
     text-decoration: none;
     font-weight: 600;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    font-size: 0.875rem;
+    transition: all 0.25s ease;
+    border: 1px solid transparent;
+}
+.social-link.facebook { color: var(--fb-color); background: #edf5ff; }
+.social-link.facebook:hover { background: var(--fb-color); color: white; transform: translateY(-2px); }
+
+.social-link.instagram { color: var(--ig-color); background: #fff0f5; }
+.social-link.instagram:hover { background: var(--ig-color); color: white; transform: translateY(-2px); }
+
+.social-link.tiktok { color: var(--tt-color); background: #f1f5f9; }
+.social-link.tiktok:hover { background: var(--tt-color); color: white; transform: translateY(-2px); }
+
+/* Iconos de contactos generales */
+.contact-icon {
+    font-size: 1.5rem;
 }
 
-#contactos a[href*="facebook.com"] {
-    color: var(--fb-color);
-    border: 2px solid var(--fb-color);
-}
-#contactos a[href*="facebook.com"]:hover {
-    background-color: var(--fb-color);
-    color: white;
-    transform: scale(1.05);
-}
-
-#contactos a[href*="instagram.com"] {
-    color: var(--ig-color);
-    border: 2px solid var(--ig-color);
-}
-#contactos a[href*="instagram.com"]:hover {
-    background-color: var(--ig-color);
-    color: white;
-    transform: scale(1.05);
-}
-
-#contactos a[href*="tiktok.com"] {
-    color: var(--tt-color);
-    border: 2px solid var(--tt-color);
-}
-#contactos a[href*="tiktok.com"]:hover {
-    background-color: var(--tt-color);
-    color: white;
-    transform: scale(1.05);
-}
-
-footer {
+/* Footer Premium */
+.footer-custom {
     background-color: var(--dark-footer);
     color: #ffffff;
 }
-
-footer a {
-    color: #f8f9fa;
-    text-decoration: underline;
+.footer-logo {
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: white;
+    letter-spacing: -0.5px;
 }
-
-footer a:hover {
+.footer-logo i {
     color: var(--primary-color);
 }
-
-footer hr {
-    border-color: rgba(255, 255, 255, 0.15) !important;
-}
-
 .text-muted-footer {
-    color: #a0a0a0 !important;
-    font-size: 0.85rem;
+    color: #64748b !important;
+    font-size: 0.8rem;
     letter-spacing: 0.5px;
 }
 
+/* Animaciones Fluidas de Entrada */
 .tarjeta-animada {
-    animation: fadeScale 0.4s ease forwards;
+    animation: slideUpFade 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-@keyframes fadeScale {
+@keyframes slideUpFade {
     from {
         opacity: 0;
-        transform: scale(0.95);
+        transform: translateY(12px) scale(0.98);
     }
     to {
         opacity: 1;
-        transform: scale(1);
+        transform: translateY(0) scale(1);
     }
 }
 
+/* Optimización para Dispositivos Móviles (Responsive Grid) */
 @media (max-width: 768px) {
-    h1, .h1 {
-        font-size: 1.8rem;
+    h2, .fs-2 {
+        font-size: 1.5rem !important;
     }
-    
-    h2, .h2, .fs-2 {
-        font-size: 1.4rem !important;
+    .hero-section {
+        padding: 3rem 1rem !important;
     }
-    
-    h3, .h3 {
-        font-size: 1.2rem;
-    }
-    
-    .navbar-brand {
-        font-size: 1.4rem;
-        margin-right: auto;
-    }
-    
-    #inicio {
-        padding: 2.5rem 1.5rem !important;
+    .navbar-nav {
+        padding-top: 1rem;
     }
 }
