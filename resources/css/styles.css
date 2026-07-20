@@ -1,8 +1,8 @@
 :root {
-    --primary-color: #0252cf;       /* Azul tecnológico premium */
-    --primary-soft: #edf4ff;        /* Fondo azul suave para badges */
-    --bg-azure: #f8fafc;            /* Gris azulado ultra limpio para el body */
-    --dark-footer: #0f172a;         /* Gris pizarra oscuro sofisticado */
+    --primary-color: #0252cf;     
+    --primary-soft: #edf4ff;       
+    --bg-azure: #f8fafc;          
+    --dark-footer: #0f172a;        
     --fb-color: #1877f2;
     --ig-color: #f11370;
     --tt-color: #0f1419;
@@ -18,7 +18,6 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* Navbar Premium */
 .navbar-custom {
     border-bottom: 1px solid var(--border-color);
     box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
@@ -52,22 +51,18 @@ body {
     background-color: var(--primary-soft);
 }
 
-/* Secciones y Sombreados Modernos */
 .shadow-xs {
     box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 2px 8px -1px rgba(15, 23, 42, 0.02) !important;
 }
-.bg-soft-primary {
-    background-color: var(--primary-soft) !important;
-}
-
-/* Hero Section Refinada */
 .hero-section {
     background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
     border: 1px solid var(--border-color);
     padding: 4rem 1.5rem !important;
 }
+.tracking-tight {
+    letter-spacing: -0.025em;
+}
 
-/* Efecto de Tarjetas de Servicios e Inventario */
 .custom-card {
     background-color: #ffffff; 
     border: 1px solid var(--border-color);
@@ -91,7 +86,6 @@ body {
     font-size: 1.25rem;
 }
 
-/* Formularios de alta gama */
 .form-control-custom {
     border-radius: 8px;
     border: 1px solid var(--border-color);
@@ -105,17 +99,11 @@ body {
     border-color: var(--primary-color);
 }
 
-/* Contadores e Indicadores */
-.badge-counter {
-    background-color: var(--primary-color);
-    color: white;
-}
 .card-dinamica {
     border-radius: 12px !important;
     border: 1px solid var(--border-color) !important;
 }
 
-/* Botones de Redes Sociales de Diseñador */
 .social-link {
     display: inline-flex;
     align-items: center;
@@ -136,12 +124,10 @@ body {
 .social-link.tiktok { color: var(--tt-color); background: #f1f5f9; }
 .social-link.tiktok:hover { background: var(--tt-color); color: white; transform: translateY(-2px); }
 
-/* Iconos de contactos generales */
 .contact-icon {
     font-size: 1.5rem;
 }
 
-/* Footer Premium */
 .footer-custom {
     background-color: var(--dark-footer);
     color: #ffffff;
@@ -152,16 +138,12 @@ body {
     color: white;
     letter-spacing: -0.5px;
 }
-.footer-logo i {
-    color: var(--primary-color);
-}
 .text-muted-footer {
     color: #64748b !important;
     font-size: 0.8rem;
     letter-spacing: 0.5px;
 }
 
-/* Animaciones Fluidas de Entrada */
 .tarjeta-animada {
     animation: slideUpFade 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -177,7 +159,6 @@ body {
     }
 }
 
-/* Optimización para Dispositivos Móviles (Responsive Grid) */
 @media (max-width: 768px) {
     h2, .fs-2 {
         font-size: 1.5rem !important;
@@ -188,4 +169,17 @@ body {
     .navbar-nav {
         padding-top: 1rem;
     }
+}
+
+.btn-sm {
+    white-space: nowrap;
+}
+
+#lista-recursos .card {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.btn {
+    transition: all 0.2s ease-in-out;
 }

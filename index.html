@@ -8,14 +8,13 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    
     <link rel="stylesheet" href="resources/css/styles.css">
-</head>
-<body data-bs-spy="scroll" data-bs-target="#navbar-techmanager" data-bs-offset="100" style="position: relative;">
 
-    <!-- COMPONENTE DE PLANTILLA BASE (base.html) - ENCABEZADO Y NAVEGACIÓN GLOBAL -->
-    <header class="bg-white sticky-top navbar-custom" id="navbar-techmanager">
-        <nav class="navbar navbar-expand-lg navbar-light py-3">
+</head>
+<body data-bs-spy="scroll" data-bs-target="#navbar-techmanager" data-bs-offset="100">
+
+    <header class="bg-white sticky-top navbar-custom">
+        <nav class="navbar navbar-expand-lg navbar-light py-3" id="navbar-techmanager">
             <div class="container">
                 <a class="navbar-brand d-flex align-items-center gap-2" href="#inicio">
                     <div class="brand-icon">
@@ -28,29 +27,17 @@
                 </button>
                 <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav ms-auto gap-2 text-center">
-                        <li class="nav-item">
-                            <a class="nav-link active" href="#inicio">Inicio</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#quienes-somos">Quiénes Somos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#servicios">Servicios</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#gestion-recursos">Gestión de Recursos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#contactos">Contactos</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link active" href="#inicio">Inicio</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#quienes-somos">Quiénes Somos</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#servicios">Servicios</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#gestion-recursos">Gestión de Recursos</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#contactos">Contactos</a></li>
                     </ul>
                 </div>
             </div>
         </nav>
     </header>
-    <!-- FIN DEL ENCABEZADO FIJO DE base.html -->
 
-    <!-- INICIO DEL BLOQUE DE CONTENIDO DINÁMICO REEMPLAZABLE: {% block content %} -->
     <main class="container py-5">
         
         <section id="inicio" class="hero-section text-center rounded-4 shadow-sm mb-5 position-relative overflow-hidden">
@@ -71,7 +58,7 @@
                 <div class="col-md-7">
                     <article>
                         <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Nuestra Identidad</span>
-                        <h2 class="mb-4 text-dark fw-bold">Quienes Somos</h2>
+                        <h2 class="mb-4 text-dark fw-bold">Quiénes Somos</h2>
                         <p class="text-secondary mb-0" style="text-align: justify; line-height: 1.8;">
                             TechManager es una plataforma tecnológica desarrollada con el propósito de facilitar la administración y monitoreo de recursos informáticos en empresas, instituciones educativas y organizaciones de diferentes sectores. Nuestro sistema permite gestionar inventarios de hardware y software, supervisar el estado de equipos tecnológicos, controlar licencias y generar reportes que apoyen la toma de decisiones. Además, busca optimizar los procesos internos mediante herramientas modernas que incrementan la productividad y mejoran la seguridad de la información. TechManager se enfoca en ofrecer soluciones eficientes, accesibles y confiables, adaptándose a las necesidades de cada usuario y contribuyendo al crecimiento digital de las organizaciones en un entorno tecnológico en constante evolución.
                         </p>
@@ -84,7 +71,7 @@
                 </div>
             </div>
         </section>
- 
+
         <section id="servicios" class="mb-5">
             <div class="text-center mb-5">
                 <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">¿Qué ofrecemos?</span>
@@ -95,8 +82,11 @@
         </section>
 
         <section id="gestion-recursos" class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
+            <div class="text-center mb-5">
+                <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Inventario</span>
+                <h2 class="fw-bold text-dark">Gestión de Recursos</h2>
+            </div> 
             <div class="row g-5">
-                <!-- Formulario -->
                 <div class="col-lg-5">
                     <div class="card p-4 border-0 bg-light rounded-4 h-100">
                         <h3 class="text-dark fw-bold h4 mb-2">Registrar Recurso</h3>
@@ -126,8 +116,9 @@
                                 </select>
                                 <div class="invalid-feedback">Por favor, seleccione una categoría válida.</div>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100 py-3 rounded-3 fw-medium">
-                                <i class="bi bi-plus-circle me-2"></i>Agregar al Sistema
+                            <button type="submit" class="btn btn-primary w-100 py-3 rounded-3 fw-medium" id="btn-submit-recurso">
+                                <span id="spinner-carga" class="spinner-border spinner-border-sm me-2 d-none" role="status" aria-hidden="true"></span>
+                                <i id="icono-boton" class="bi bi-plus-circle me-2"></i>Agregar al Sistema
                             </button>
                         </form>
                     </div>
@@ -139,7 +130,7 @@
                             <h3 class="text-dark fw-bold h4 mb-1">Recursos Registrados</h3>
                             <p class="text-muted small m-0">Monitoreo en tiempo real de activos guardados.</p>
                         </div>
-                        <span class="badge badge-counter fs-6 px-3 py-2 rounded-pill">
+                        <span class="badge bg-primary fs-6 px-3 py-2 rounded-pill">
                             Total: <span id="total-registros" class="fw-bold">0</span>
                         </span>
                     </div>
@@ -148,7 +139,7 @@
                 </div>
             </div>
         </section>
- 
+
         <section id="contactos" class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
             <div class="text-center mb-5">
                 <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Canales de Comunicación</span>
@@ -181,13 +172,13 @@
                 
             <div class="mx-auto mb-5" style="max-width: 800px;">
                 <div class="ratio ratio-21x9 rounded-4 shadow-xs overflow-hidden border border-light-subtle">
-                   <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d248.96116965402123!2d-79.96214121580122!3d-3.2557357209299496!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x90330e57ad65e1b5%3A0x3223ffd7ee2f5593!2sCorporaci%C3%B3n%20Nacional%20de%20Telecomunicaciones!5e0!3m2!1ses!2sec!4v1782594963960!5m2!1ses!2sec" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+                   <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d248.96116965402123!2d-79.96214121580122!3d-3.2557357209299496!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x90330e57ad65e1b5%3A0x3223ffd7ee2f5593!2sCorporaci%C3%B3n%20Nacional%20de%20Telecomunicaciones!5e0!3m2!1ses!2sec!4v1782594963960!5m2!1ses!2sec" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
                 </div>
             </div>
 
             <div class="text-center mb-5">
                 <p class="fw-medium text-dark small mb-3">Conéctate en nuestras plataformas oficiales:</p>
-                <div class="d-flex flex-wrap justify-content-center gap-2 social-buttons-container">
+                <div class="d-flex flex-wrap justify-content-center gap-2">
                     <a href="https://www.facebook.com/techmanager55?locale=es_LA" target="_blank" class="social-link facebook"><i class="bi bi-facebook me-2"></i>Facebook</a>
                     <a href="https://www.instagram.com/techmanager" target="_blank" class="social-link instagram"><i class="bi bi-instagram me-2"></i>Instagram</a>
                     <a href="https://www.tiktok.com/@techmanager.oficial" target="_blank" class="social-link tiktok"><i class="bi bi-tiktok me-2"></i>TikTok</a>
@@ -198,32 +189,31 @@
 
             <div class="mx-auto" style="max-width: 650px;">
                 <h4 class="mb-4 text-center text-dark fw-bold h5">Envíanos un Mensaje directo</h4>
-                
                 <div id="mensaje-alerta-contacto"></div>
 
                 <form class="row g-3 text-start" id="form-contacto" novalidate>
                     <div class="col-md-6">
                         <label for="nombre" class="form-label small fw-medium text-secondary">Nombre Completo</label>
-                        <input type="text" class="form-control form-control-custom" id="nombre" placeholder="Tu nombre" required>
-                        <div class="invalid-feedback">El nombre completo debe tener al menos 3 caracteres.</div>
+                        <input type="text" class="form-control form-control-custom" id="nombre" placeholder="Tu nombre">
+                        <div class="invalid-feedback">El nombre completo debe tener al menos 3 caracteres y contener solo letras.</div>
                     </div>
                     <div class="col-md-6">
                         <label for="email" class="form-label small fw-medium text-secondary">Correo Electrónico</label>
-                        <input type="email" class="form-control form-control-custom" id="email" placeholder="nombre@correo.com" required>
-                        <div class="invalid-feedback">Por favor, ingresa un correo electrónico válido (ejemplo@dominio.com).</div>
+                        <input type="email" class="form-control form-control-custom" id="email" placeholder="nombre@correo.com">
+                        <div class="invalid-feedback">Por favor, ingresa un correo electrónico válido.</div>
                     </div>
                     <div class="col-12">
                         <label for="asunto" class="form-label small fw-medium text-secondary">Asunto corporativo</label>
-                        <input type="text" class="form-control form-control-custom" id="asunto" placeholder="Motivo del contacto" required>
-                        <div class="invalid-feedback">El asunto debe tener al menos 4 caracteres y ser legible.</div>
+                        <input type="text" class="form-control form-control-custom" id="asunto" placeholder="Motivo del contacto">
+                        <div class="invalid-feedback">El asunto debe tener al menos 4 caracteres.</div>
                     </div>
                     <div class="col-12">
                         <label for="mensaje" class="form-label small fw-medium text-secondary">Mensaje o Requerimiento</label>
-                        <textarea class="form-control form-control-custom" id="mensaje" rows="4" placeholder="Escribe detalladamente tu consulta aquí..." required></textarea>
+                        <textarea class="form-control form-control-custom" id="mensaje" rows="4" placeholder="Escribe detalladamente tu consulta aquí..."></textarea>
                         <div class="invalid-feedback">El mensaje debe ser detallado (mínimo 10 caracteres).</div>
                     </div>
                     <div class="col-12 pt-2">
-                        <button type="submit" class="btn btn-dark w-100 py-2.5 rounded-3 fw-medium btn-dark-custom">Enviar Mensaje Corporativo</button>
+                        <button type="submit" class="btn btn-dark w-100 py-3 rounded-3 fw-medium">Enviar Mensaje Corporativo</button>
                     </div>
                 </form>
             </div>
@@ -255,11 +245,25 @@
                 <span class="fw-bold text-danger"><span class="badge bg-danger-subtle text-danger rounded-pill">Cerrado</span></span>
             </div>
         </aside>
-
     </main>
-    <!-- FIN DEL BLOQUE DE CONTENIDO DINÁMICO: {% endblock %} -->
 
-    <!-- COMPONENTE DE PLANTILLA BASE (base.html) - PIE DE PÁGINA Y SCRIPTS GLOBALES -->
+    <div class="modal fade" id="modalRecursoDetalle" tabindex="-1" aria-labelledby="modalRecursoTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow rounded-4">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title fw-bold text-dark" id="modalRecursoTitle">Detalle del Activo</h5>
+                    <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-3" id="modalRecursoBody">
+                </div>
+                <div class="modal-footer border-top-0 justify-content-between">
+                    <button type="button" class="btn btn-light rounded-3 fw-medium small" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="button" class="btn btn-danger rounded-3 fw-medium small d-none" id="btn-confirmar-eliminar">Confirmar Eliminación</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="text-center py-5 mt-5 footer-custom">
         <div class="container">
             <div class="footer-logo mb-3 d-flex align-items-center justify-content-center gap-2">
@@ -267,7 +271,7 @@
                 <span>TechManager</span>
             </div>
             <p class="mb-1 fw-medium text-white-50 small">Desarrollado por: <span class="text-white fw-semibold">Fausto Orellana</span></p>
-            <p class="mb-3 text-white-50 btn-dark-custom position-relative d-inline-block small">Desarrollo de Aplicaciones Web (B)</p>
+            <p class="mb-3 text-white-50 position-relative d-inline-block small">Desarrollo de Aplicaciones Web (B)</p>
             <hr class="my-4 mx-auto text-white-50 opacity-10" style="max-width: 300px;">
             <p class="mb-0 small text-muted-footer">© 2026 Todos los derechos reservados • Conectividad Eficiente</p>
         </div>
@@ -275,6 +279,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="resources/js/script.js"></script>
-    <!-- FIN ABSOLUTO DEL ARCHIVO DE COMPONENTE BASE -->
+    <script src="resources/js/contacto,js"></script>
 </body>
 </html>
