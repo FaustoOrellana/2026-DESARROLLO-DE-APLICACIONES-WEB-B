@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Inicio | TechManager{% endblock %}
+
+{% block content %}
+<section id="inicio" class="hero-section text-center rounded-4 shadow-sm mb-5 position-relative overflow-hidden">
+    <div class="hero-overlay"></div>
+    <div class="position-relative z-1 py-5 px-3">
+        <h1 class="display-4 mb-3 text-dark fw-bold tracking-tight">Inicio</h1> 
+        <p class="lead text-secondary mx-auto mb-4" style="max-width: 650px;">
+            Bienvenido a TechManager, una plataforma diseñada para la administración y monitoreo de recursos tecnológicos en empresas e instituciones.
+        </p>
+        <a href="{{ url_for('productos') }}" class="btn btn-primary btn-lg px-4 py-3 rounded-3 shadow-sm fw-medium transition-all">
+            Explorar Productos <i class="bi bi-arrow-right ms-2"></i>
+        </a>
+    </div>
+</section>
+
+<section id="quienes-somos" class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
+    <div class="row align-items-center g-5">
+        <div class="col-md-7">
+            <article>
+                <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Nuestra Identidad</span>
+                <h2 class="mb-4 text-dark fw-bold">Quiénes Somos</h2>
+                <p class="text-secondary mb-0" style="text-align: justify; line-height: 1.8;">
+                    TechManager es una plataforma tecnológica desarrollada con el propósito de facilitar la administración y monitoreo de recursos informáticos en empresas, instituciones educativas y organizaciones de diferentes sectores. Nuestro sistema permite gestionar inventarios de hardware y software, supervisar el estado de equipos tecnológicos, controlar licencias y generar reportes que apoyen la toma de decisiones. Además, busca optimizar los procesos internos mediante herramientas modernas que incrementan la productividad y mejoran la seguridad de la información.
+                </p>
+            </article>
+        </div>
+        <div class="col-md-5 text-center">
+            <div class="image-wrapper position-relative">
+                <img src="{{ url_for('static', filename='img/TechManager.jpg') }}" alt="Tecnología de la Información" class="img-fluid rounded-4 shadow-sm img-hover-effect">
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="contactos" class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
+    <div class="text-center mb-5">
+        <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Canales de Comunicación</span>
+        <h2 class="fw-bold text-dark">Centro de Soporte y Contacto</h2>
+    </div>
+
+    <div class="row g-4 justify-content-center text-center mb-5">
+        <div class="col-sm-6 col-md-4">
+            <div class="p-3 bg-light rounded-3 h-100 border border-light-subtle">
+                <div class="contact-icon text-primary mb-2"><i class="bi bi-envelope-open fs-3"></i></div>
+                <h5 class="fw-bold text-dark small mb-1">Correo Electrónico</h5>
+                <a href="mailto:andresorellana305@gmail.com" class="text-decoration-none text-secondary small text-break">andresorellana305@gmail.com</a>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-4">
+            <div class="p-3 bg-light rounded-3 h-100 border border-light-subtle">
+                <div class="contact-icon text-primary mb-2"><i class="bi bi-telephone fs-3"></i></div>
+                <h5 class="fw-bold text-dark small mb-1">Teléfono Directo</h5>
+                <p class="text-secondary small m-0">+593 99 642 6896</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="p-3 bg-light rounded-3 h-100 border border-light-subtle">
+                <div class="contact-icon text-primary mb-2"><i class="bi bi-geo-alt fs-3"></i></div>
+                <h5 class="fw-bold text-dark small mb-1">Ubicación</h5>
+                <p class="text-secondary small m-0">Machala, El Oro, Ecuador</p>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

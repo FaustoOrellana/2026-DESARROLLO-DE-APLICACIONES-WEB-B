@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Facturación | TechManager{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Gestión Financiera</span>
+            <h2 class="fw-bold text-dark m-0">Módulo de Facturación</h2>
+        </div>
+        <button class="btn btn-success rounded-3"><i class="bi bi-receipt me-2"></i>Emitir Factura</button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle border">
+            <thead class="table-light">
+                <tr>
+                    <th>Nº Factura</th>
+                    <th>Cliente</th>
+                    <th>Fecha de Emisión</th>
+                    <th>Monto Total</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for factura in facturas %}
+                <tr>
+                    <td class="fw-bold">{{ factura.num_factura }}</td>
+                    <td>{{ factura.cliente }}</td>
+                    <td>{{ factura.fecha }}</td>
+                    <td>${{ "%.2f"|format(factura.monto) }}</td>
+                    <td>
+                        {% if factura.estado == 'Pagada' %}
+                            <span class="badge bg-success-subtle text-success rounded-pill px-3 py-2">Pagada</span>
+                        {% else %}
+                            <span class="badge bg-warning-subtle text-warning-emphasis rounded-pill px-3 py-2">Pendiente</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
