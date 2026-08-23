@@ -1,0 +1,12 @@
+<footer class="text-center py-5 mt-5 footer-custom">
+    <div class="container">
+        <div class="footer-logo mb-3 d-flex align-items-center justify-content-center gap-2">
+            <img src="{{ url_for('static', filename='img/TechManager_Emblem.png') }}" alt="Logo TechManager" style="width: 28px; height: 28px; object-fit: contain;">
+            <span>TechManager</span>
+        </div>
+        <p class="mb-1 fw-medium text-white-50 small">Desarrollado por: <span class="text-white fw-semibold">Fausto Orellana</span></p>
+        <p class="mb-3 text-white-50 position-relative d-inline-block small">Desarrollo de Aplicaciones Web (B)</p>
+        <hr class="my-4 mx-auto text-white-50 opacity-10" style="max-width: 300px;">
+        <p class="mb-0 small text-muted-footer">© {{ sistema.periodo if sistema else 2026 }} Todos los derechos reservados • Conectividad Eficiente</p>
+    </div>
+</footer>

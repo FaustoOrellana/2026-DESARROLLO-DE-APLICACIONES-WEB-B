@@ -1,18 +1,57 @@
 {% extends "base.html" %}
 
-{% block title %}Inicio | TechManager{% endblock %}
+{% block title %}Inicio | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
 <section id="inicio" class="hero-section text-center rounded-4 shadow-sm mb-5 position-relative overflow-hidden">
     <div class="hero-overlay"></div>
     <div class="position-relative z-1 py-5 px-3">
-        <h1 class="display-4 mb-3 text-dark fw-bold tracking-tight">Inicio</h1> 
+        <!-- Variable simple con filtro de Jinja2: upper -->
+        <h1 class="display-4 mb-3 text-dark fw-bold tracking-tight">{{ mensaje|upper }}</h1> 
         <p class="lead text-secondary mx-auto mb-4" style="max-width: 650px;">
-            Bienvenido a TechManager, una plataforma diseñada para la administración y monitoreo de recursos tecnológicos en empresas e instituciones.
+            Bienvenido a <strong>{{ sistema.nombre_sistema }}</strong>, plataforma para la administración de recursos tecnológicos durante el período <strong>{{ sistema.periodo }}</strong>.
         </p>
         <a href="{{ url_for('productos') }}" class="btn btn-primary btn-lg px-4 py-3 rounded-3 shadow-sm fw-medium transition-all">
             Explorar Productos <i class="bi bi-arrow-right ms-2"></i>
         </a>
+    </div>
+</section>
+
+<!-- SECCIÓN DE MÉTRICAS DINÁMICAS (REQUERIMIENTO SEMANA 10) -->
+<section id="metricas" class="mb-5">
+    <div class="row g-4 text-center">
+        <div class="col-sm-6 col-md-3">
+            <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                <div class="text-primary mb-2"><i class="bi bi-box-seam fs-2"></i></div>
+                <h3 class="fw-bold text-dark mb-1">{{ total_productos }}</h3>
+                <p class="text-secondary small mb-3">Productos Registrados</p>
+                <a href="{{ url_for('productos') }}" class="btn btn-sm btn-outline-primary rounded-pill mt-auto">Ver Catálogo</a>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-3">
+            <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                <div class="text-success mb-2"><i class="bi bi-people fs-2"></i></div>
+                <h3 class="fw-bold text-dark mb-1">{{ total_clientes }}</h3>
+                <p class="text-secondary small mb-3">Clientes Activos</p>
+                <a href="{{ url_for('clientes') }}" class="btn btn-sm btn-outline-success rounded-pill mt-auto">Ver Directorio</a>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-3">
+            <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                <div class="text-info mb-2"><i class="bi bi-truck fs-2"></i></div>
+                <h3 class="fw-bold text-dark mb-1">{{ total_proveedores }}</h3>
+                <p class="text-secondary small mb-3">Proveedores Aliados</p>
+                <a href="{{ url_for('proveedores') }}" class="btn btn-sm btn-outline-info rounded-pill mt-auto">Ver Proveedores</a>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-3">
+            <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                <div class="text-warning mb-2"><i class="bi bi-receipt fs-2"></i></div>
+                <h3 class="fw-bold text-dark mb-1">{{ total_facturas }}</h3>
+                <p class="text-secondary small mb-3">Comprobantes</p>
+                <a href="{{ url_for('facturacion') }}" class="btn btn-sm btn-outline-warning rounded-pill mt-auto">Ver Historial</a>
+            </div>
+        </div>
     </div>
 </section>
 

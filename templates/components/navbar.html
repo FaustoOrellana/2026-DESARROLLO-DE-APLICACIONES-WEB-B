@@ -1,0 +1,24 @@
+<header class="bg-white sticky-top navbar-custom shadow-sm">
+    <nav class="navbar navbar-expand-lg navbar-light py-3" id="navbar-techmanager">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('inicio') }}">
+                <div class="brand-icon">
+                    <img src="{{ url_for('static', filename='img/TechManager_Emblem.png') }}" alt="Logo TechManager" style="width: 32px; height: 32px; object-fit: contain;">
+                </div>
+                <span>Tech<span class="text-dark fw-normal">Manager</span></span>
+            </a>
+            <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto gap-2 text-center">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('inicio') }}">Inicio</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('productos') }}">Productos</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('clientes') }}">Clientes</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('proveedores') }}">Proveedores</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('facturacion') }}">Facturación</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+</header>

@@ -1,16 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}Proveedores | TechManager{% endblock %}
+{% block title %}Proveedores | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
-<div class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
-    <div class="mb-4">
-        <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Cadena de Suministros</span>
-        <h2 class="fw-bold text-dark m-0">Módulo de Proveedores</h2>
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <span class="text-uppercase text-primary fw-bold small">{{ "cadena de suministros"|upper }}</span>
+            <h2 class="fw-bold m-0">Módulo de Proveedores</h2>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-dark fs-6">Total: {{ proveedores|length }}</span>
+            <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#modalProveedor">
+                <i class="bi bi-truck"></i> + Nuevo Proveedor
+            </button>
+        </div>
     </div>
 
-    <div class="table-responsive">
-        <table class="table table-striped align-middle border">
+    <div class="table-responsive shadow-sm rounded">
+        <table class="table table-hover align-middle mb-0 bg-white">
             <thead class="table-dark">
                 <tr>
                     <th>ID</th>
@@ -18,20 +26,68 @@
                     <th>Persona de Contacto</th>
                     <th>Teléfono</th>
                     <th>Categoría Principal</th>
+                    <th>Estado</th>
+                    <th class="text-center">Acciones</th>
                 </tr>
             </thead>
             <tbody>
-                {% for prov in proveedores %}
+                {% for pr in proveedores %}
                 <tr>
-                    <td>{{ prov.id }}</td>
-                    <td class="fw-semibold">{{ prov.empresa }}</td>
-                    <td>{{ prov.contacto }}</td>
-                    <td>{{ prov.telefono }}</td>
-                    <td><span class="badge bg-secondary">{{ prov.categoria }}</span></td>
+                    <td class="fw-bold">#{{ pr.id }}</td>
+                    <td>{{ pr.nombre }}</td>
+                    <td>{{ pr.contacto|title }}</td>
+                    <td>{{ pr.telefono }}</td>
+                    <td><span class="badge bg-secondary">{{ pr.categoria }}</span></td>
+                    <td>
+                        {% if pr.estado == 'Suspendido' %}
+                            <span class="badge bg-warning text-dark">Suspendido</span>
+                        {% else %}
+                            <span class="badge bg-success">Activo</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <a href="{{ url_for('eliminar_proveedor', id=pr.id) }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('¿Desea eliminar este proveedor?')">
+                            <i class="bi bi-trash"></i>
+                        </a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- MODAL REGISTRO PROVEEDOR -->
+<div class="modal fade" id="modalProveedor" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="{{ url_for('agregar_proveedor') }}" method="POST" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Agregar Nuevo Proveedor</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Empresa Proveedora</label>
+                    <input type="text" name="nombre" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Persona de Contacto</label>
+                    <input type="text" name="contacto" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Teléfono</label>
+                    <input type="text" name="telefono" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Categoría Principal</label>
+                    <input type="text" name="categoria" class="form-control" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-dark">Guardar Proveedor</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}
