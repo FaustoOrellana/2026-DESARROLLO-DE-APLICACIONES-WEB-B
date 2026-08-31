@@ -1,11 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-
 <div class="container my-4">
     <div class="row justify-content-center">
         <div class="col-md-8">
-            <h3 class="mb-4">Registrar Proveedor</h3>
+            <h3 class="mb-4">{{ titulo if titulo else "Formulario de Proveedor" }}</h3>
 
             <form method="POST">
                 {{ form.hidden_tag() }}
@@ -14,9 +13,7 @@
                     {{ form.nombre.label(class="form-label") }}
                     {{ form.nombre(class="form-control") }}
                     {% for e in form.nombre.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -24,9 +21,7 @@
                     {{ form.contacto.label(class="form-label") }}
                     {{ form.contacto(class="form-control") }}
                     {% for e in form.contacto.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -34,9 +29,7 @@
                     {{ form.telefono.label(class="form-label") }}
                     {{ form.telefono(class="form-control") }}
                     {% for e in form.telefono.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -44,9 +37,7 @@
                     {{ form.categoria.label(class="form-label") }}
                     {{ form.categoria(class="form-select") }}
                     {% for e in form.categoria.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -58,5 +49,4 @@
         </div>
     </div>
 </div>
-
 {% endblock %}

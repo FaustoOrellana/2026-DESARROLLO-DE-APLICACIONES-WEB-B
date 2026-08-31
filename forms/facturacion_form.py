@@ -4,16 +4,13 @@ from wtforms.validators import DataRequired, Length, NumberRange, Regexp
 
 
 class FacturacionForm(FlaskForm):
-
     numero = StringField(
         'Nº Factura',
         validators=[
-            DataRequired(message='El número de comprobante es obligatorio.'),
-            Length(min=5, max=20, message='El número de factura debe contener entre 5 y 20 caracteres.'),
-            Regexp(r'^[A-Za-z0-9\-]+$', message='Solo se permiten letras, números y guiones (ej. FAC-001-00240).')
+            DataRequired(message='El número de factura es obligatorio.'),
+            Length(min=7, max=25, message='El formato debe tener entre 7 y 25 caracteres.')
         ]
     )
-
     cliente = SelectField(
         'Cliente',
         coerce=str,
@@ -21,7 +18,6 @@ class FacturacionForm(FlaskForm):
             DataRequired(message='Debe seleccionar un cliente de la lista.')
         ]
     )
-
     fecha = DateField(
         'Fecha de Emisión',
         format='%Y-%m-%d',
@@ -29,15 +25,13 @@ class FacturacionForm(FlaskForm):
             DataRequired(message='La fecha de emisión es obligatoria.')
         ]
     )
-
     monto = DecimalField(
         'Monto Total ($)',
         validators=[
             DataRequired(message='El monto es obligatorio.'),
-            NumberRange(min=0.01, message='El monto debe ser superior a 0.00.')
+            NumberRange(min=0.01, max=500000.0, message='El monto debe ser superior a 0.00.')
         ]
     )
-
     estado = SelectField(
         'Estado',
         choices=[
@@ -47,8 +41,7 @@ class FacturacionForm(FlaskForm):
             ('Anulada', 'Anulada')
         ],
         validators=[
-            DataRequired(message='Debe asignar un estado a la factura.')
+            DataRequired(message='Debe seleccionar un estado válido.')
         ]
     )
-
     submit = SubmitField('Guardar')

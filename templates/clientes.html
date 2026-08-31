@@ -3,48 +3,64 @@
 {% block title %}Clientes | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
-<div class="container py-4">
+<div class="container my-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <span class="text-uppercase text-primary fw-bold small">{{ "directorio empresarial"|upper }}</span>
-            <h2 class="fw-bold m-0">Módulo de Clientes</h2>
+            <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Directorio Empresarial</span>
+            <h2 class="fw-bold text-dark m-0">Módulo de Clientes</h2>
         </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="badge bg-primary fs-6">Total: {{ clientes|length }}</span>
-            <a href="{{ url_for('formulario_cliente') }}" class="btn btn-primary">
-                <i class="bi bi-person-plus"></i> + Nuevo Cliente
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-success fs-6 px-3 py-2 rounded-3">Total: {{ clientes|length }}</span>
+            <a href="{{ url_for('formulario_cliente') }}" class="btn btn-success fw-semibold px-3 py-2 rounded-3">
+                <i class="bi bi-person-plus me-1"></i> Nuevo Cliente
             </a>
         </div>
     </div>
 
-    <div class="row g-4">
-        {% for c in clientes %}
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm border-0 position-relative">
-                <div class="card-body d-flex flex-column">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="bg-primary-subtle text-primary p-3 rounded-circle me-3">
-                            <i class="bi bi-building fs-4"></i>
-                        </div>
-                        <div class="overflow-hidden">
-                            <h5 class="card-title fw-bold m-0 text-truncate">{{ c.nombre }}</h5>
-                            <small class="text-muted">RUC: {{ c.ruc }}</small>
-                        </div>
-                    </div>
-                    
-                    <hr class="my-2">
-                    
-                    <p class="mb-1 small">
-                        <strong><i class="bi bi-telephone me-1 text-secondary"></i>Teléfono:</strong> {{ c.telefono }}
-                    </p>
-                    
-                    <p class="mb-0 small">
-                        <strong><i class="bi bi-envelope me-1 text-secondary"></i>Email:</strong> {{ c.email|lower }}
-                    </p>
-                </div>
-            </div>
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">ID</th>
+                        <th>Nombre / Razón Social</th>
+                        <th>RUC / Cédula</th>
+                        <th>Teléfono</th>
+                        <th>Email</th>
+                        <th class="text-end pe-4">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in clientes %}
+                    <tr>
+                        <td class="ps-4 fw-bold text-secondary">#{{ c.id }}</td>
+                        <td class="fw-semibold text-dark">{{ c.nombre }}</td>
+                        <td class="text-muted">{{ c.ruc }}</td>
+                        <td>{{ c.telefono }}</td>
+                        <td>
+                            <a href="mailto:{{ c.email }}" class="text-decoration-none">{{ c.email }}</a>
+                        </td>
+                        <td class="text-end pe-4">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="{{ url_for('editar_cliente', id=c.id) }}" class="btn btn-outline-warning" title="Editar">
+                                    <i class="bi bi-pencil-square"></i> Editar
+                                </a>
+                                <a href="{{ url_for('eliminar_cliente', id=c.id) }}" class="btn btn-outline-danger" title="Eliminar" onclick="return confirm('¿Está seguro de eliminar este cliente?');">
+                                    <i class="bi bi-trash"></i> Eliminar
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            No hay clientes registrados en el sistema.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-        {% endfor %}
     </div>
 </div>
 {% endblock %}

@@ -4,7 +4,6 @@ from wtforms.validators import DataRequired, Length, Regexp
 
 
 class ClienteForm(FlaskForm):
-
     nombre = StringField(
         'Nombre / Razón Social',
         validators=[
@@ -12,7 +11,6 @@ class ClienteForm(FlaskForm):
             Length(min=3, max=100, message='El nombre debe tener entre 3 y 100 caracteres.')
         ]
     )
-
     ruc = StringField(
         'RUC / Cédula',
         validators=[
@@ -21,7 +19,6 @@ class ClienteForm(FlaskForm):
             Regexp(r'^[0-9]+$', message='La identificación solo debe contener números.')
         ]
     )
-
     telefono = StringField(
         'Teléfono',
         validators=[
@@ -29,16 +26,14 @@ class ClienteForm(FlaskForm):
             Length(min=9, max=20, message='El teléfono debe contener entre 9 y 20 caracteres.')
         ]
     )
-
     email = StringField(
         'Correo Electrónico',
         validators=[
             DataRequired(message='El correo electrónico es obligatorio.'),
             Regexp(
                 r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$',
-                message='Ingrese un correo válido (ej: usuario@dominio.com).'
+                message='Ingrese un correo electrónico válido (ej: usuario@dominio.com).'
             )
         ]
     )
-
     submit = SubmitField('Guardar')

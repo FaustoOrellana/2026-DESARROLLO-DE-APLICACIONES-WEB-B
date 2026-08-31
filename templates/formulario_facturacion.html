@@ -1,11 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-
 <div class="container my-4">
     <div class="row justify-content-center">
         <div class="col-md-8">
-            <h3 class="mb-4">Emitir Factura</h3>
+            <h3 class="mb-4">{{ titulo if titulo else "Formulario de Facturación" }}</h3>
 
             <form method="POST">
                 {{ form.hidden_tag() }}
@@ -14,9 +13,7 @@
                     {{ form.numero.label(class="form-label") }}
                     {{ form.numero(class="form-control") }}
                     {% for e in form.numero.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -24,9 +21,7 @@
                     {{ form.cliente.label(class="form-label") }}
                     {{ form.cliente(class="form-select") }}
                     {% for e in form.cliente.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -34,9 +29,7 @@
                     {{ form.fecha.label(class="form-label") }}
                     {{ form.fecha(class="form-control") }}
                     {% for e in form.fecha.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -44,9 +37,7 @@
                     {{ form.monto.label(class="form-label") }}
                     {{ form.monto(class="form-control") }}
                     {% for e in form.monto.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -54,9 +45,7 @@
                     {{ form.estado.label(class="form-label") }}
                     {{ form.estado(class="form-select") }}
                     {% for e in form.estado.errors %}
-                        <div class="text-danger small mt-1">
-                            {{ e }}
-                        </div>
+                        <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
@@ -68,5 +57,4 @@
         </div>
     </div>
 </div>
-
 {% endblock %}

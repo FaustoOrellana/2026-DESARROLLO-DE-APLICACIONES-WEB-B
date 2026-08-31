@@ -3,43 +3,64 @@
 {% block title %}Proveedores | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
-<div class="container py-4">
+<div class="container my-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <span class="text-uppercase text-primary fw-bold small">{{ "cadena de suministros"|upper }}</span>
-            <h2 class="fw-bold m-0">Módulo de Proveedores</h2>
+            <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Cadena de Suministro</span>
+            <h2 class="fw-bold text-dark m-0">Módulo de Proveedores</h2>
         </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="badge bg-dark fs-6">Total: {{ proveedores|length }}</span>
-            <a href="{{ url_for('formulario_proveedor') }}" class="btn btn-dark">
-                <i class="bi bi-truck"></i> + Nuevo Proveedor
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-info text-white fs-6 px-3 py-2 rounded-3">Total: {{ proveedores|length }}</span>
+            <a href="{{ url_for('formulario_proveedor') }}" class="btn btn-info text-white fw-semibold px-3 py-2 rounded-3">
+                <i class="bi bi-truck me-1"></i> Nuevo Proveedor
             </a>
         </div>
     </div>
 
-    <div class="table-responsive shadow-sm rounded">
-        <table class="table table-hover align-middle mb-0 bg-white">
-            <thead class="table-dark">
-                <tr>
-                    <th>ID</th>
-                    <th>Empresa Proveedora</th>
-                    <th>Persona de Contacto</th>
-                    <th>Teléfono</th>
-                    <th>Categoría Principal</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for pr in proveedores %}
-                <tr>
-                    <td class="fw-bold">#{{ pr.id }}</td>
-                    <td>{{ pr.nombre }}</td>
-                    <td>{{ pr.contacto|title }}</td>
-                    <td>{{ pr.telefono }}</td>
-                    <td><span class="badge bg-secondary">{{ pr.categoria }}</span></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">ID</th>
+                        <th>Empresa Proveedora</th>
+                        <th>Contacto Principal</th>
+                        <th>Teléfono</th>
+                        <th>Categoría</th>
+                        <th class="text-end pe-4">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in proveedores %}
+                    <tr>
+                        <td class="ps-4 fw-bold text-secondary">#{{ p.id }}</td>
+                        <td class="fw-semibold text-dark">{{ p.nombre }}</td>
+                        <td>{{ p.contacto }}</td>
+                        <td>{{ p.telefono }}</td>
+                        <td>
+                            <span class="badge bg-light text-dark border rounded-2 px-2 py-1">{{ p.categoria }}</span>
+                        </td>
+                        <td class="text-end pe-4">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="{{ url_for('editar_proveedor', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
+                                    <i class="bi bi-pencil-square"></i> Editar
+                                </a>
+                                <a href="{{ url_for('eliminar_proveedor', id=p.id) }}" class="btn btn-outline-danger" title="Eliminar" onclick="return confirm('¿Está seguro de eliminar este proveedor?');">
+                                    <i class="bi bi-trash"></i> Eliminar
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            No hay proveedores registrados en el sistema.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 {% endblock %}
