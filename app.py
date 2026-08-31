@@ -1,8 +1,16 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, flash
+
+# Importaciones directas por archivo desde la carpeta forms
+from forms.producto_form import ProductoForm
+from forms.cliente_form import ClienteForm
+from forms.proveedor_form import ProveedorForm
+from forms.facturacion_form import FacturacionForm
 
 app = Flask(__name__)
+# Clave obligatoria para el funcionamiento del token CSRF
+app.config['SECRET_KEY'] = 'techmanager_secret_key_semana11_secure'
 
-# --- DICCIONARIO ESTRUCTURADO GLOBAL (REQUERIMIENTO SEMANA 10) ---
+# --- DICCIONARIO ESTRUCTURADO GLOBAL ---
 SISTEMA_INFO = {
     "nombre_sistema": "TechManager System",
     "periodo": "2026",
@@ -11,7 +19,6 @@ SISTEMA_INFO = {
 }
 
 # --- DATOS DE EJEMPLO EN MEMORIA ---
-# Incluye productos con stock disponible y producto con stock 0 para la condición {% if %}
 PRODUCTOS = [
     {"id": 1, "nombre": "Servidor Dell PowerEdge R740", "categoria": "Hardware", "precio": 3500.0, "stock": 5},
     {"id": 2, "nombre": "Switch Cisco Catalyst 2960", "categoria": "Redes", "precio": 1200.0, "stock": 0},
@@ -41,7 +48,6 @@ FACTURAS = [
 # --- RUTA PRINCIPAL ---
 @app.route('/')
 def inicio():
-    # Variable simple enviada hacia el template
     mensaje_bienvenida = "panel de control y gestión empresarial"
     return render_template(
         'index.html',
@@ -58,92 +64,110 @@ def inicio():
 def productos():
     return render_template('productos.html', productos=PRODUCTOS, sistema=SISTEMA_INFO)
 
-@app.route('/productos/agregar', methods=['POST'])
-def agregar_producto():
-    nuevo_id = max([p['id'] for p in PRODUCTOS], default=0) + 1
-    nuevo_item = {
-        "id": nuevo_id,
-        "nombre": request.form['nombre'],
-        "categoria": request.form['categoria'],
-        "precio": float(request.form['precio']),
-        "stock": int(request.form['stock'])
-    }
-    PRODUCTOS.append(nuevo_item)
-    return redirect(url_for('productos'))
+@app.route('/productos/formulario', methods=['GET', 'POST'])
+def formulario_producto():
+    form = ProductoForm()
+    if form.validate_on_submit():
+        nombre_limpio = form.nombre.data.strip()
+        # Validación contra productos duplicados
+        if any(p['nombre'].strip().lower() == nombre_limpio.lower() for p in PRODUCTOS):
+            form.nombre.errors.append('Ya existe un producto registrado con este nombre.')
+            return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Producto")
 
-@app.route('/productos/eliminar/<int:id>')
-def eliminar_producto(id):
-    global PRODUCTOS
-    PRODUCTOS = [p for p in PRODUCTOS if p['id'] != id]
-    return redirect(url_for('productos'))
+        nuevo_id = max([p['id'] for p in PRODUCTOS], default=0) + 1
+        nuevo_item = {
+            "id": nuevo_id,
+            "nombre": nombre_limpio,
+            "categoria": form.categoria.data,
+            "precio": float(form.precio.data),
+            "stock": int(form.stock.data)
+        }
+        PRODUCTOS.append(nuevo_item)
+        return redirect(url_for('productos'))
+    return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Producto")
 
 # --- MÓDULO CLIENTES ---
 @app.route('/clientes')
 def clientes():
     return render_template('clientes.html', clientes=CLIENTES, sistema=SISTEMA_INFO)
 
-@app.route('/clientes/agregar', methods=['POST'])
-def agregar_cliente():
-    nuevo_id = max([c['id'] for c in CLIENTES], default=0) + 1
-    CLIENTES.append({
-        "id": nuevo_id,
-        "nombre": request.form['nombre'],
-        "ruc": request.form['ruc'],
-        "telefono": request.form['telefono'],
-        "email": request.form['email']
-    })
-    return redirect(url_for('clientes'))
+@app.route('/clientes/formulario', methods=['GET', 'POST'])
+def formulario_cliente():
+    form = ClienteForm()
+    if form.validate_on_submit():
+        ruc_limpio = form.ruc.data.strip()
+        # Validación contra identificación / RUC duplicado
+        if any(c['ruc'].strip() == ruc_limpio for c in CLIENTES):
+            form.ruc.errors.append('Ya existe un cliente registrado con este RUC o Cédula.')
+            return render_template('formulario_cliente.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Cliente")
 
-@app.route('/clientes/eliminar/<int:id>')
-def eliminar_cliente(id):
-    global CLIENTES
-    CLIENTES = [c for c in CLIENTES if c['id'] != id]
-    return redirect(url_for('clientes'))
+        nuevo_id = max([c['id'] for c in CLIENTES], default=0) + 1
+        nuevo_item = {
+            "id": nuevo_id,
+            "nombre": form.nombre.data.strip(),
+            "ruc": ruc_limpio,
+            "telefono": form.telefono.data.strip(),
+            "email": form.email.data.strip().lower()
+        }
+        CLIENTES.append(nuevo_item)
+        return redirect(url_for('clientes'))
+    return render_template('formulario_cliente.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Cliente")
 
 # --- MÓDULO PROVEEDORES ---
 @app.route('/proveedores')
 def proveedores():
     return render_template('proveedores.html', proveedores=PROVEEDORES, sistema=SISTEMA_INFO)
 
-@app.route('/proveedores/agregar', methods=['POST'])
-def agregar_proveedor():
-    nuevo_id = max([p['id'] for p in PROVEEDORES], default=0) + 1
-    PROVEEDORES.append({
-        "id": nuevo_id,
-        "nombre": request.form['nombre'],
-        "contacto": request.form['contacto'],
-        "telefono": request.form['telefono'],
-        "categoria": request.form['categoria']
-    })
-    return redirect(url_for('proveedores'))
+@app.route('/proveedores/formulario', methods=['GET', 'POST'])
+def formulario_proveedor():
+    form = ProveedorForm()
+    if form.validate_on_submit():
+        empresa_limpia = form.nombre.data.strip()
+        # Validación contra proveedores con el mismo nombre
+        if any(pr['nombre'].strip().lower() == empresa_limpia.lower() for pr in PROVEEDORES):
+            form.nombre.errors.append('Ya existe un proveedor registrado con este nombre de empresa.')
+            return render_template('formulario_proveedor.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Proveedor")
 
-@app.route('/proveedores/eliminar/<int:id>')
-def eliminar_proveedor(id):
-    global PROVEEDORES
-    PROVEEDORES = [pr for pr in PROVEEDORES if pr['id'] != id]
-    return redirect(url_for('proveedores'))
+        nuevo_id = max([p['id'] for p in PROVEEDORES], default=0) + 1
+        nuevo_item = {
+            "id": nuevo_id,
+            "nombre": empresa_limpia,
+            "contacto": form.contacto.data.strip(),
+            "telefono": form.telefono.data.strip(),
+            "categoria": form.categoria.data
+        }
+        PROVEEDORES.append(nuevo_item)
+        return redirect(url_for('proveedores'))
+    return render_template('formulario_proveedor.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Proveedor")
 
 # --- MÓDULO FACTURACIÓN ---
 @app.route('/facturacion')
 def facturacion():
     return render_template('facturacion.html', facturas=FACTURAS, sistema=SISTEMA_INFO)
 
-@app.route('/facturacion/agregar', methods=['POST'])
-def agregar_factura():
-    FACTURAS.append({
-        "numero": request.form['numero'],
-        "cliente": request.form['cliente'],
-        "fecha": request.form['fecha'],
-        "monto": float(request.form['monto']),
-        "estado": request.form['estado']
-    })
-    return redirect(url_for('facturacion'))
+@app.route('/facturacion/formulario', methods=['GET', 'POST'])
+def formulario_facturacion():
+    form = FacturacionForm()
+    # Carga dinámica de clientes en memoria para el SelectField
+    form.cliente.choices = [('', 'Seleccione un cliente')] + [(c['nombre'], c['nombre']) for c in CLIENTES]
+    
+    if form.validate_on_submit():
+        numero_factura = form.numero.data.strip().upper()
+        # Validación contra comprobantes duplicados
+        if any(f['numero'].strip().upper() == numero_factura for f in FACTURAS):
+            form.numero.errors.append('Este número de factura ya se encuentra registrado.')
+            return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura")
 
-@app.route('/facturacion/eliminar/<string:numero>')
-def eliminar_factura(numero):
-    global FACTURAS
-    FACTURAS = [f for f in FACTURAS if f['numero'] != numero]
-    return redirect(url_for('facturacion'))
+        nueva_factura = {
+            "numero": numero_factura,
+            "cliente": form.cliente.data,
+            "fecha": str(form.fecha.data),
+            "monto": float(form.monto.data),
+            "estado": form.estado.data
+        }
+        FACTURAS.append(nueva_factura)
+        return redirect(url_for('facturacion'))
+    return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura")
 
 if __name__ == '__main__':
     app.run(debug=True)

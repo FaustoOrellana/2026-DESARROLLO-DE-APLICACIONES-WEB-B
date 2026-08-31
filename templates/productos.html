@@ -11,9 +11,9 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <span class="badge bg-primary fs-6">Total: {{ productos|length }}</span>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalProducto">
+            <a href="{{ url_for('formulario_producto') }}" class="btn btn-primary">
                 <i class="bi bi-plus-lg"></i> Nuevo Producto
-            </button>
+            </a>
         </div>
     </div>
 
@@ -27,7 +27,6 @@
                     <th>Precio ($)</th>
                     <th>Stock</th>
                     <th>Estado</th>
-                    <th class="text-center">Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -45,51 +44,10 @@
                             <span class="badge bg-danger">Agotado</span>
                         {% endif %}
                     </td>
-                    <td class="text-center">
-                        <a href="{{ url_for('eliminar_producto', id=p.id) }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('¿Desea eliminar este producto?')">
-                            <i class="bi bi-trash"></i>
-                        </a>
-                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-    </div>
-</div>
-
-<!-- MODAL REGISTRO PRODUCTO -->
-<div class="modal fade" id="modalProducto" tabindex="-1">
-    <div class="modal-dialog">
-        <form action="{{ url_for('agregar_producto') }}" method="POST" class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title fw-bold">Agregar Nuevo Producto</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Nombre del Producto</label>
-                    <input type="text" name="nombre" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Categoría</label>
-                    <input type="text" name="categoria" class="form-control" required>
-                </div>
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Precio ($)</label>
-                        <input type="number" step="0.01" name="precio" class="form-control" required>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Stock</label>
-                        <input type="number" name="stock" class="form-control" required>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="submit" class="btn btn-primary">Guardar Producto</button>
-            </div>
-        </form>
     </div>
 </div>
 {% endblock %}

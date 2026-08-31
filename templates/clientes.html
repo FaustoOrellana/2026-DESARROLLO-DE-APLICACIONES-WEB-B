@@ -11,9 +11,9 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <span class="badge bg-primary fs-6">Total: {{ clientes|length }}</span>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalCliente">
+            <a href="{{ url_for('formulario_cliente') }}" class="btn btn-primary">
                 <i class="bi bi-person-plus"></i> + Nuevo Cliente
-            </button>
+            </a>
         </div>
     </div>
 
@@ -38,67 +38,13 @@
                         <strong><i class="bi bi-telephone me-1 text-secondary"></i>Teléfono:</strong> {{ c.telefono }}
                     </p>
                     
-                    <p class="mb-3 small">
+                    <p class="mb-0 small">
                         <strong><i class="bi bi-envelope me-1 text-secondary"></i>Email:</strong> {{ c.email|lower }}
                     </p>
-
-                    <div class="mb-3">
-                        {% if c.estado == 'inactivo' or c.estado == 'Inactivo' %}
-                            <span class="badge bg-secondary-subtle text-secondary w-100 py-2">
-                                <i class="bi bi-dash-circle me-1"></i>Cliente Inactivo
-                            </span>
-                        {% else %}
-                            <span class="badge bg-success-subtle text-success w-100 py-2">
-                                <i class="bi bi-check-circle me-1"></i>Cliente Activo
-                            </span>
-                        {% endif %}
-                    </div>
-
-                    <div class="mt-auto">
-                        <a href="{{ url_for('eliminar_cliente', id=c.id) }}" class="btn btn-outline-danger btn-sm w-100" onclick="return confirm('¿Desea eliminar este cliente?')">
-                            <i class="bi bi-trash"></i> Eliminar Cliente
-                        </a>
-                    </div>
                 </div>
             </div>
         </div>
         {% endfor %}
-    </div>
-</div>
-
-<!-- MODAL REGISTRO CLIENTE -->
-<div class="modal fade" id="modalCliente" tabindex="-1">
-    <div class="modal-dialog">
-        <form action="{{ url_for('agregar_cliente') }}" method="POST" class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title fw-bold">Registrar Nuevo Cliente</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Razón Social / Nombre</label>
-                    <input type="text" name="nombre" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">RUC / Cédula</label>
-                    <input type="text" name="ruc" class="form-control" required>
-                </div>
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Teléfono</label>
-                        <input type="text" name="telefono" class="form-control" required>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Correo Electrónico</label>
-                        <input type="email" name="email" class="form-control" required>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="submit" class="btn btn-primary">Registrar Cliente</button>
-            </div>
-        </form>
     </div>
 </div>
 {% endblock %}

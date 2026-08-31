@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container my-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <h3 class="mb-4">Emitir Factura</h3>
+
+            <form method="POST">
+                {{ form.hidden_tag() }}
+
+                <div class="mb-3">
+                    {{ form.numero.label(class="form-label") }}
+                    {{ form.numero(class="form-control") }}
+                    {% for e in form.numero.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.cliente.label(class="form-label") }}
+                    {{ form.cliente(class="form-select") }}
+                    {% for e in form.cliente.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.fecha.label(class="form-label") }}
+                    {{ form.fecha(class="form-control") }}
+                    {% for e in form.fecha.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.monto.label(class="form-label") }}
+                    {{ form.monto(class="form-control") }}
+                    {% for e in form.monto.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.estado.label(class="form-label") }}
+                    {{ form.estado(class="form-select") }}
+                    {% for e in form.estado.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="d-flex gap-2">
+                    {{ form.submit(class="btn btn-primary") }}
+                    <a href="{{ url_for('facturacion') }}" class="btn btn-secondary">Cancelar</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

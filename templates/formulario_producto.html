@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container my-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <h3 class="mb-4">Registrar Producto</h3>
+
+            <form method="POST">
+                {{ form.hidden_tag() }}
+
+                <div class="mb-3">
+                    {{ form.nombre.label(class="form-label") }}
+                    {{ form.nombre(class="form-control") }}
+                    {% for e in form.nombre.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.categoria.label(class="form-label") }}
+                    {{ form.categoria(class="form-select") }}
+                    {% for e in form.categoria.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.precio.label(class="form-label") }}
+                    {{ form.precio(class="form-control") }}
+                    {% for e in form.precio.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.stock.label(class="form-label") }}
+                    {{ form.stock(class="form-control") }}
+                    {% for e in form.stock.errors %}
+                        <div class="text-danger small mt-1">
+                            {{ e }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="d-flex gap-2">
+                    {{ form.submit(class="btn btn-primary") }}
+                    <a href="{{ url_for('productos') }}" class="btn btn-secondary">Cancelar</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
