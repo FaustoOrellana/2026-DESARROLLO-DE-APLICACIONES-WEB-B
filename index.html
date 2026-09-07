@@ -9,7 +9,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="static/css/style.css">
-
 </head>
 <body data-bs-spy="scroll" data-bs-target="#navbar-techmanager" data-bs-offset="100">
 
@@ -30,7 +29,10 @@
                         <li class="nav-item"><a class="nav-link active" href="#inicio">Inicio</a></li>
                         <li class="nav-item"><a class="nav-link" href="#quienes-somos">Quiénes Somos</a></li>
                         <li class="nav-item"><a class="nav-link" href="#servicios">Servicios</a></li>
-                        <li class="nav-item"><a class="nav-link" href="#gestion-recursos">Gestión de Recursos</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#metricas">Clientes</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#metricas">Proveedores</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#metricas">Facturación</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#productos">Productos</a></li>
                         <li class="nav-item"><a class="nav-link" href="#contactos">Contactos</a></li>
                     </ul>
                 </div>
@@ -81,15 +83,52 @@
             <div class="row g-4" id="contenedor-servicios-dinamicos"></div>
         </section>
 
-        <section id="gestion-recursos" class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
+        <section id="metricas" class="mb-5">
+            <div class="row g-4 text-center">
+                <div class="col-sm-6 col-md-3">
+                    <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                        <div class="text-primary mb-2"><i class="bi bi-box-seam fs-2"></i></div>
+                        <h3 class="fw-bold text-dark mb-1" id="metricas-productos">0</h3>
+                        <p class="text-secondary small mb-3">Productos Registrados</p>
+                        <a href="#productos" class="btn btn-sm btn-outline-primary rounded-pill mt-auto">Ver Catálogo</a>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-md-3">
+                    <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                        <div class="text-success mb-2"><i class="bi bi-people fs-2"></i></div>
+                        <h3 class="fw-bold text-dark mb-1">0</h3>
+                        <p class="text-secondary small mb-3">Clientes Activos</p>
+                        <a href="#clientes" class="btn btn-sm btn-outline-success rounded-pill mt-auto">Ver Directorio</a>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-md-3">
+                    <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                        <div class="text-info mb-2"><i class="bi bi-truck fs-2"></i></div>
+                        <h3 class="fw-bold text-dark mb-1">0</h3>
+                        <p class="text-secondary small mb-3">Proveedores Aliados</p>
+                        <a href="#proveedores" class="btn btn-sm btn-outline-info rounded-pill mt-auto">Ver Proveedores</a>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-md-3">
+                    <div class="card border-0 shadow-xs rounded-4 p-4 bg-white border border-light h-100">
+                        <div class="text-warning mb-2"><i class="bi bi-receipt fs-2"></i></div>
+                        <h3 class="fw-bold text-dark mb-1">0</h3>
+                        <p class="text-secondary small mb-3">Comprobantes</p>
+                        <a href="#facturacion" class="btn btn-sm btn-outline-warning rounded-pill mt-auto">Ver Historial</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="productos" class="bg-white rounded-4 shadow-xs p-4 p-md-5 mb-5 border border-light">
             <div class="text-center mb-5">
                 <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Inventario</span>
-                <h2 class="fw-bold text-dark">Gestión de Recursos</h2>
+                <h2 class="fw-bold text-dark">Productos</h2>
             </div> 
             <div class="row g-5">
                 <div class="col-lg-5">
                     <div class="card p-4 border-0 bg-light rounded-4 h-100">
-                        <h3 class="text-dark fw-bold h4 mb-2">Registrar Recurso</h3>
+                        <h3 class="text-dark fw-bold h4 mb-2">Registrar Producto</h3>
                         <p class="text-muted small mb-4">Ingresa el nuevo equipamiento al inventario global de la empresa.</p>
                         
                         <div id="mensaje-alerta"></div>
@@ -127,7 +166,7 @@
                 <div class="col-lg-7">
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <div>
-                            <h3 class="text-dark fw-bold h4 mb-1">Recursos Registrados</h3>
+                            <h3 class="text-dark fw-bold h4 mb-1">Productos Registrados</h3>
                             <p class="text-muted small m-0">Monitoreo en tiempo real de activos guardados.</p>
                         </div>
                         <span class="badge bg-primary fs-6 px-3 py-2 rounded-pill">
@@ -279,6 +318,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="static/js/script.js"></script>
-    <script src="static/js/"></script>
+    <script src="static/js/contacto.js"></script>
 </body>
 </html>

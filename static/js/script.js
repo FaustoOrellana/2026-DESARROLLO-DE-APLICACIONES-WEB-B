@@ -22,7 +22,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const spinnerCarga = document.getElementById("spinner-carga");
     const iconoBoton = document.getElementById("icono-boton");
     const contenedorLista = document.getElementById("lista-recursos");
+    
     const contadorTotal = document.getElementById("total-registros");
+    const contadorMetricas = document.getElementById("metricas-productos");
+    
     const contenedorAlerta = document.getElementById("mensaje-alerta");
 
     const modalElement = document.getElementById("modalRecursoDetalle");
@@ -311,7 +314,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 </div>
             `;
+        
             if (contadorTotal) contadorTotal.innerText = "0";
+            if (contadorMetricas) contadorMetricas.innerText = "0";
             return;
         }
 
@@ -364,6 +369,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         if (contadorTotal) contadorTotal.innerText = recursosTecnologicos.length;
+        if (contadorMetricas) contadorMetricas.innerText = recursosTecnologicos.length;
     }
 
     function mostrarMensaje(mensaje, tipo) {
