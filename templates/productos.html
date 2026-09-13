@@ -7,7 +7,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Catálogo Corporativo</span>
-            <h2 class="fw-bold text-dark m-0">Módulo de Productos</h2>
+            <h2 class="fw-bold text-dark m-0">Productos</h2>
         </div>
         <div class="d-flex align-items-center gap-3">
             <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Total: {{ productos|length }}</span>
@@ -53,10 +53,40 @@
                                 <a href="{{ url_for('editar_producto', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
                                     <i class="bi bi-pencil-square"></i> Editar
                                 </a>
-                                <a href="{{ url_for('eliminar_producto', id=p.id) }}" class="btn btn-outline-danger" title="Eliminar" onclick="return confirm('¿Está seguro de eliminar este producto?');">
+                                
+                                <!-- Botón que activa el Modal de Confirmación Visual -->
+                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar">
                                     <i class="bi bi-trash"></i> Eliminar
-                                </a>
+                                </button>
                             </div>
+
+                            <!-- Modal de Confirmación Visual Bootstrap 5 -->
+                            <div class="modal fade" id="modalEliminar{{ p.id }}" tabindex="-1" aria-labelledby="modalLabel{{ p.id }}" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered text-start">
+                                    <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+                                        <div class="modal-header bg-danger text-white">
+                                            <h5 class="modal-title fw-bold" id="modalLabel{{ p.id }}">
+                                                <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
+                                            </h5>
+                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                                        </div>
+                                        <div class="modal-body py-4">
+                                            <p class="mb-1">¿Está seguro de que desea eliminar permanentemente el producto?</p>
+                                            <p class="fw-bold text-dark fs-5 mb-0">#{{ p.id }} - {{ p.nombre }}</p>
+                                            <small class="text-muted">Esta acción no se puede deshacer y afectará la base de datos PostgreSQL.</small>
+                                        </div>
+                                        <div class="modal-footer bg-light border-0">
+                                            <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                                            <form action="{{ url_for('eliminar_producto', id=p.id) }}" method="POST" class="d-inline">
+                                                <button type="submit" class="btn btn-danger px-3 rounded-3">
+                                                    <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Fin del Modal -->
                         </td>
                     </tr>
                     {% else %}
