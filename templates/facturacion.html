@@ -3,24 +3,26 @@
 {% block title %}Facturación | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
-<div class="container my-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+<div class="w-100">
+    <!-- Encabezado adaptable: flexible en móvil y alineado en pantallas medianas -->
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
         <div>
             <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Registro Contable</span>
             <h2 class="fw-bold text-dark m-0">Historial de Facturación</h2>
         </div>
-        <div class="d-flex align-items-center gap-3">
+        <div class="d-flex align-items-center gap-2 gap-sm-3 flex-wrap">
             <span class="badge bg-warning text-dark fs-6 px-3 py-2 rounded-3">Total: {{ facturas|length }}</span>
-            <a href="{{ url_for('formulario_facturacion') }}" class="btn btn-warning fw-semibold px-3 py-2 rounded-3">
+            <a href="{{ url_for('formulario_facturacion') }}" class="btn btn-warning fw-semibold px-3 py-2 rounded-3 text-nowrap">
                 <i class="bi bi-receipt me-1"></i> Nueva Factura
             </a>
         </div>
     </div>
 
+    <!-- Tarjeta con la tabla de facturas intacta -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
+                <thead class="table-light text-nowrap">
                     <tr>
                         <th class="ps-4">Nº Comprobante</th>
                         <th>Cliente</th>
@@ -46,46 +48,15 @@
                                 <span class="badge bg-secondary rounded-pill px-2 py-1">{{ f.estado }}</span>
                             {% endif %}
                         </td>
-                        <td class="text-end pe-4">
+                        <td class="text-end pe-4 text-nowrap">
                             <div class="btn-group btn-group-sm" role="group">
                                 <a href="{{ url_for('editar_factura', numero=f.numero) }}" class="btn btn-outline-warning" title="Editar">
                                     <i class="bi bi-pencil-square"></i> Editar
                                 </a>
-                                
-                                <!-- Botón que dispara el Modal de Confirmación Visual -->
                                 <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarFac{{ f.id }}" title="Eliminar">
                                     <i class="bi bi-trash"></i> Eliminar
                                 </button>
                             </div>
-
-                            <!-- Modal de Confirmación Visual Bootstrap 5 -->
-                            <div class="modal fade" id="modalEliminarFac{{ f.id }}" tabindex="-1" aria-labelledby="modalLabelFac{{ f.id }}" aria-hidden="true">
-                                <div class="modal-dialog modal-dialog-centered text-start">
-                                    <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
-                                        <div class="modal-header bg-danger text-white">
-                                            <h5 class="modal-title fw-bold" id="modalLabelFac{{ f.id }}">
-                                                <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
-                                            </h5>
-                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                                        </div>
-                                        <div class="modal-body py-4">
-                                            <p class="mb-1">¿Está seguro de que desea eliminar permanentemente la siguiente factura?</p>
-                                            <p class="fw-bold font-monospace text-primary fs-5 mb-1">{{ f.numero }}</p>
-                                            <p class="mb-1 text-dark">Cliente: <strong>{{ f.cliente }}</strong> | Monto: <strong>${{ "%.2f"|format(f.monto) }}</strong></p>
-                                            <small class="text-muted">Al eliminar esta cabecera, se eliminarán en cascada los registros asociados en el detalle de la factura en PostgreSQL.</small>
-                                        </div>
-                                        <div class="modal-footer bg-light border-0">
-                                            <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                                            <form action="{{ url_for('eliminar_factura', numero=f.numero) }}" method="POST" class="d-inline">
-                                                <button type="submit" class="btn btn-danger px-3 rounded-3">
-                                                    <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
-                                                </button>
-                                            </form>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- Fin del Modal -->
                         </td>
                     </tr>
                     {% else %}
@@ -100,4 +71,34 @@
         </div>
     </div>
 </div>
+
+<!-- Modales ubicados fuera de la tabla -->
+{% for f in facturas %}
+<div class="modal fade" id="modalEliminarFac{{ f.id }}" tabindex="-1" aria-labelledby="modalLabelFac{{ f.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered text-start">
+        <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold" id="modalLabelFac{{ f.id }}">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body py-4">
+                <p class="mb-1">¿Está seguro de que desea eliminar permanentemente la siguiente factura?</p>
+                <p class="fw-bold font-monospace text-primary fs-5 mb-1">{{ f.numero }}</p>
+                <p class="mb-1 text-dark">Cliente: <strong>{{ f.cliente }}</strong> | Monto: <strong>${{ "%.2f"|format(f.monto) }}</strong></p>
+                <small class="text-muted">Al eliminar esta cabecera, se eliminarán en cascada los registros asociados en el detalle de la factura en PostgreSQL.</small>
+            </div>
+            <div class="modal-footer bg-light border-0">
+                <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                <form action="{{ url_for('eliminar_factura', numero=f.numero) }}" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-danger px-3 rounded-3">
+                        <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
 {% endblock %}
