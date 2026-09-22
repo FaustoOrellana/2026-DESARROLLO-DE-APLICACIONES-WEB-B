@@ -1586,7 +1586,7 @@ def descargar_factura(id_factura):
         
         filas_detalles = cursor.fetchall()
         cursor.close()
-        
+
         detalles_lista = [
             {
                 'nombre': d['nombre'] if isinstance(d, dict) else d[0],
@@ -1912,24 +1912,31 @@ def finalizar_compra():
             monto_total += subtotal_item
             items_a_procesar.append((id_prod, cant_solicitada, precio_real, subtotal_item))
 
-        # 3. Generar número de factura secuencial limpio y correlativo (FAC-YYYY-XXX)
+       # 3. Generar número de factura secuencial limpio y correlativo (FAC-YYYY-XXX)
         anio_actual = datetime.now().year
         prefijo = f"FAC-{anio_actual}-"
 
+        # Ordenar por el valor numérico real del sufijo, no por orden alfabético de texto
         cursor.execute('''
-            SELECT COALESCE(
-                MAX(CAST(SUBSTRING(numero FROM '^FAC-[0-9]{4}-([0-9]{3,4})$') AS INTEGER)), 
-                0
-            ) + 1 AS siguiente_secuencia
+            SELECT numero 
             FROM facturas 
-            WHERE numero ~ %s;
-        ''', (f'^FAC-{anio_actual}-[0-9]{{3,4}}$',))
+            WHERE numero LIKE %s 
+            ORDER BY CAST(SPLIT_PART(numero, '-', 3) AS INTEGER) DESC 
+            LIMIT 1;
+        ''', (f"{prefijo}%",))
 
-        res_secuencia = cursor.fetchone()
-        if isinstance(res_secuencia, dict):
-            siguiente_id = int(res_secuencia.get('siguiente_secuencia', 1))
+        res_ultima = cursor.fetchone()
+        
+        if res_ultima:
+            num_str = res_ultima.get('numero') if isinstance(res_ultima, dict) else res_ultima[0]
+            try:
+                # Extrae la parte numérica final (ej: de 'FAC-2026-008' toma 8)
+                ultimo_consecutivo = int(num_str.split('-')[-1])
+                siguiente_id = ultimo_consecutivo + 1
+            except (ValueError, IndexError):
+                siguiente_id = 1
         else:
-            siguiente_id = int(res_secuencia[0])
+            siguiente_id = 1
 
         numero_factura = f"{prefijo}{siguiente_id:03d}"
 
@@ -1941,7 +1948,7 @@ def finalizar_compra():
 
         res_fac = cursor.fetchone()
         id_factura = res_fac['id'] if isinstance(res_fac, dict) else res_fac[0]
-
+        
         # 4. Insertar filas en detalle_facturas y descontar stock
         for id_prod, cant, precio, subtotal in items_a_procesar:
             cursor.execute('''
