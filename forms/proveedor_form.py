@@ -1,11 +1,11 @@
 from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, SubmitField
-from wtforms.validators import DataRequired, Length
+from wtforms.validators import DataRequired, Length, Regexp, Optional
 
 
 class ProveedorForm(FlaskForm):
     nombre = StringField(
-        'Empresa Proveedora',
+        'Empresa Proveedora / Razón Social',
         validators=[
             DataRequired(message='El nombre de la empresa es obligatorio.'),
             Length(min=3, max=100, message='El nombre debe tener entre 3 y 100 caracteres.')
@@ -22,20 +22,22 @@ class ProveedorForm(FlaskForm):
         'Teléfono',
         validators=[
             DataRequired(message='El teléfono es obligatorio.'),
-            Length(min=9, max=20, message='El teléfono debe tener entre 9 y 20 caracteres.')
+            Length(min=7, max=20, message='El teléfono debe contener entre 7 y 20 caracteres.'),
+            Regexp(r'^[0-9+\s\-]+$', message='Ingrese un número de teléfono válido.')
         ]
     )
     categoria = SelectField(
         'Categoría Principal',
-        choices=[
-            ('', 'Seleccione una categoría'),
-            ('Hardware y Equipos', 'Hardware y Equipos'),
-            ('Software y Licencias', 'Software y Licencias'),
-            ('Infraestructura de Red', 'Infraestructura de Red'),
-            ('Servicios y Soporte', 'Servicios y Soporte')
-        ],
+        coerce=str,
         validators=[
             DataRequired(message='Debe seleccionar una categoría principal.')
         ]
     )
-    submit = SubmitField('Guardar')
+    id_ciudad = SelectField(
+        'Ciudad',
+        coerce=str,
+        validators=[
+            Optional()
+        ]
+    )
+    submit = SubmitField('Guardar Proveedor')

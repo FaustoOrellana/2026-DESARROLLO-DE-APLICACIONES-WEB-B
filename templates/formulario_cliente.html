@@ -3,49 +3,67 @@
 {% block content %}
 <div class="container my-4">
     <div class="row justify-content-center">
-        <div class="col-md-8">
-            <h3 class="mb-4">{{ titulo if titulo else "Formulario de Cliente" }}</h3>
+        <div class="col-md-7">
+            <h3 class="mb-4 fw-bold text-dark">{{ titulo if titulo else "Formulario de Cliente" }}</h3>
 
-            <form method="POST">
-                {{ form.hidden_tag() }}
+            <div class="card border-0 shadow-sm rounded-3 p-4">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
 
-                <div class="mb-3">
-                    {{ form.nombre.label(class="form-label") }}
-                    {{ form.nombre(class="form-control") }}
-                    {% for e in form.nombre.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- Nombre -->
+                    <div class="mb-3">
+                        {{ form.nombre.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.nombre(class="form-control", placeholder="Ej: Corporación Soluciones TI") }}
+                        {% for e in form.nombre.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
 
-                <div class="mb-3">
-                    {{ form.ruc.label(class="form-label") }}
-                    {{ form.ruc(class="form-control") }}
-                    {% for e in form.ruc.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- RUC / Cédula -->
+                    <div class="mb-3">
+                        {{ form.ruc.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.ruc(class="form-control", placeholder="Ej: 0701234567001") }}
+                        {% for e in form.ruc.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
 
-                <div class="mb-3">
-                    {{ form.telefono.label(class="form-label") }}
-                    {{ form.telefono(class="form-control") }}
-                    {% for e in form.telefono.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- Teléfono -->
+                    <div class="mb-3">
+                        {{ form.telefono.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.telefono(class="form-control", placeholder="Ej: 0991234567") }}
+                        {% for e in form.telefono.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
 
-                <div class="mb-3">
-                    {{ form.email.label(class="form-label") }}
-                    {{ form.email(class="form-control") }}
-                    {% for e in form.email.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- Correo Electrónico -->
+                    <div class="mb-3">
+                        {{ form.email.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.email(class="form-control", placeholder="cliente@correo.com") }}
+                        {% for e in form.email.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
 
-                <div class="d-flex gap-2">
-                    {{ form.submit(class="btn btn-primary") }}
-                    <a href="{{ url_for('clientes') }}" class="btn btn-secondary">Cancelar</a>
-                </div>
-            </form>
+                    <!-- Ciudad (Opcional) -->
+                    {% if form.id_ciudad %}
+                    <div class="mb-4">
+                        {{ form.id_ciudad.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.id_ciudad(class="form-select") }}
+                        {% for e in form.id_ciudad.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Botones -->
+                    <div class="d-flex gap-2">
+                        {{ form.submit(class="btn btn-primary px-4") }}
+                        <a href="{{ url_for('clientes') }}" class="btn btn-secondary px-4">Cancelar</a>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>

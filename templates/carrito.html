@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+
+{% block title %}Carrito de Compras | {{ sistema.nombre_sistema }}{% endblock %}
+
+{% block content %}
+<div class="w-100">
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Mi Pedido</span>
+            <h2 class="fw-bold text-dark m-0"><i class="bi bi-cart3 me-2 text-primary"></i>Carrito de Compras</h2>
+        </div>
+        <a href="{{ url_for('productos') }}" class="btn btn-outline-primary rounded-3">
+            <i class="bi bi-plus-circle me-1"></i> Seguir Comprando
+        </a>
+    </div>
+
+    <!-- Tabla de Productos del Carrito -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white mb-4">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Producto</th>
+                        <th class="text-center" style="width: 200px;">Cantidad</th>
+                        <th class="text-end">Precio Unitario</th>
+                        <th class="text-end">Subtotal</th>
+                        <th class="text-center pe-4" style="width: 80px;">Quitar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="ps-4 fw-semibold text-dark">{{ item.nombre }}</td>
+                        <td class="text-center">
+                            <div class="d-inline-flex align-items-center justify-content-center gap-1">
+                                <!-- Botón Disminuir (-) -->
+                                <form action="{{ url_for('actualizar_carrito', id_producto=item.id) }}" method="POST" class="m-0 p-0">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="accion" value="restar"/>
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px;">
+                                        <i class="bi bi-dash"></i>
+                                    </button>
+                                </form>
+
+                                <!-- Entrada editable directa -->
+                                <form action="{{ url_for('actualizar_carrito', id_producto=item.id) }}" method="POST" class="m-0 p-0">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="accion" value="manual"/>
+                                    <input type="number" name="cantidad" value="{{ item.cantidad }}" min="1" 
+                                           class="form-control form-control-sm text-center fw-bold px-1" 
+                                           style="width: 55px;" 
+                                           onchange="this.form.submit()">
+                                </form>
+
+                                <!-- Botón Aumentar (+) -->
+                                <form action="{{ url_for('actualizar_carrito', id_producto=item.id) }}" method="POST" class="m-0 p-0">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="accion" value="sumar"/>
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px;">
+                                        <i class="bi bi-plus"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                        <td class="text-end">${{ "%.2f"|format(item.precio) }}</td>
+                        <td class="text-end fw-bold text-success">${{ "%.2f"|format(item.subtotal) }}</td>
+                        <td class="text-center pe-4">
+                            <form action="{{ url_for('eliminar_del_carrito', id_producto=item.id) }}" method="POST" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button type="submit" class="btn btn-sm text-danger border-0 p-1">
+                                    <i class="bi bi-trash fs-5"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center py-5 text-muted">
+                            <i class="bi bi-cart-x fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                            <h5 class="fw-bold text-secondary">Tu carrito está vacío</h5>
+                            <p class="small mb-3">Añade productos desde el catálogo para facturar tu pedido.</p>
+                            <a href="{{ url_for('productos') }}" class="btn btn-primary btn-sm rounded-3">Ver Productos</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Sección de Pago y Resumen (Solo se muestra si hay items) -->
+    {% if items %}
+    <form action="{{ url_for('finalizar_compra') }}" method="POST" id="form-compra">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+        <div class="row g-4">
+            <!-- Columna Izquierda: Métodos de Pago Interactivos -->
+            <div class="col-lg-8">
+                <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
+                    <h5 class="fw-bold text-dark mb-3">
+                        <i class="bi bi-wallet2 text-primary me-2"></i>Selecciona tu Método de Pago
+                    </h5>
+
+                    <!-- Selector de Tarjetas (Radio Cards) -->
+                    <div class="row g-3 mb-4">
+                        <!-- Opción 1: Efectivo -->
+                        <div class="col-md-4">
+                            <label class="card h-100 p-3 border rounded-3 text-center cursor-pointer opcion-pago shadow-sm" for="pago_efectivo" style="cursor: pointer;" onclick="cambiarMetodo('efectivo');">
+                                <input class="form-check-input d-none" type="radio" name="metodo_pago" id="pago_efectivo" value="1" checked>
+                                <i class="bi bi-cash-stack text-success fs-1 mb-2"></i>
+                                <h6 class="fw-bold mb-1 text-dark">Efectivo</h6>
+                                <small class="text-muted" style="font-size: 0.8rem;">Contra entrega / Caja</small>
+                            </label>
+                        </div>
+
+                        <!-- Opción 2: Transferencia Bancaria -->
+                        <div class="col-md-4">
+                            <label class="card h-100 p-3 border rounded-3 text-center cursor-pointer opcion-pago shadow-sm" for="pago_transf" style="cursor: pointer;" onclick="cambiarMetodo('transferencia');">
+                                <input class="form-check-input d-none" type="radio" name="metodo_pago" id="pago_transf" value="2">
+                                <i class="bi bi-bank text-primary fs-1 mb-2"></i>
+                                <h6 class="fw-bold mb-1 text-dark">Transferencia</h6>
+                                <small class="text-muted" style="font-size: 0.8rem;">Banco Pichincha / Machala</small>
+                            </label>
+                        </div>
+
+                        <!-- Opción 3: Tarjeta de Crédito / Débito -->
+                        <div class="col-md-4">
+                            <label class="card h-100 p-3 border rounded-3 text-center cursor-pointer opcion-pago shadow-sm" for="pago_tarjeta" style="cursor: pointer;" onclick="cambiarMetodo('tarjeta');">
+                                <input class="form-check-input d-none" type="radio" name="metodo_pago" id="pago_tarjeta" value="3">
+                                <i class="bi bi-credit-card text-warning fs-1 mb-2"></i>
+                                <h6 class="fw-bold mb-1 text-dark">Tarjeta</h6>
+                                <small class="text-muted" style="font-size: 0.8rem;">Débito o Crédito</small>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Panel de Información: Efectivo -->
+                    <div id="detalle-efectivo" class="alert alert-info border-0 rounded-3 mb-0">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+                            <div>
+                                <h6 class="fw-bold mb-1">Pago en Efectivo o Mostrador</h6>
+                                <p class="small mb-0 text-muted">Tu factura se generará con estado <strong>Pendiente</strong> para ser cancelada directamente al retirar los productos o al recibir el pedido.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Panel de Información: Transferencia Bancaria -->
+                    <div id="detalle-transferencia" class="border rounded-3 p-3 bg-light d-none">
+                        <h6 class="fw-bold text-dark mb-3"><i class="bi bi-bank me-2 text-primary"></i>Datos Bancarios Oficiales</h6>
+                        <div class="row g-2 small text-muted mb-3 bg-white p-3 rounded-2 border">
+                            <div class="col-sm-6">
+                                <strong>Banco:</strong> Banco de Machala / Pichincha<br>
+                                <strong>Tipo de Cuenta:</strong> Corriente # 210048593
+                            </div>
+                            <div class="col-sm-6">
+                                <strong>Beneficiario:</strong> TechManager System S.A.<br>
+                                <strong>RUC:</strong> 0791754821001
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Nº de Comprobante / Referencia:</label>
+                                <input type="text" name="ref_transferencia" class="form-control form-control-sm rounded-2" placeholder="Ej: TRANS-123456">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Banco desde el que envías:</label>
+                                <input type="text" name="banco_origen" class="form-control form-control-sm rounded-2" placeholder="Ej: Banco Guayaquil, Bolivariano...">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Panel de Información: Tarjeta -->
+                    <div id="detalle-tarjeta" class="border rounded-3 p-3 bg-light d-none">
+                        <h6 class="fw-bold text-dark mb-3"><i class="bi bi-shield-check me-2 text-success"></i>Pasarela Segura con Tarjeta</h6>
+                        <div class="row g-3">
+                            <div class="col-md-7">
+                                <label class="form-label small fw-bold text-dark mb-1">Número de Tarjeta:</label>
+                                <input type="text" name="num_tarjeta" maxlength="19" class="form-control form-control-sm rounded-2 font-monospace" placeholder="4500 0000 0000 0000">
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small fw-bold text-dark mb-1">Titular:</label>
+                                <input type="text" name="titular_tarjeta" class="form-control form-control-sm rounded-2" placeholder="Como figura en el plástico">
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <label class="form-label small fw-bold text-dark mb-1">Expiración (MM/AA):</label>
+                                <input type="text" name="exp_tarjeta" maxlength="5" class="form-control form-control-sm rounded-2 text-center" placeholder="12/28">
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <label class="form-label small fw-bold text-dark mb-1">CVV:</label>
+                                <input type="password" name="cvv_tarjeta" maxlength="4" class="form-control form-control-sm rounded-2 text-center" placeholder="•••">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Columna Derecha: Resumen de Pedido Fijo -->
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm rounded-4 p-4 bg-white sticky-top" style="top: 20px;">
+                    <h5 class="fw-bold text-dark mb-3">Resumen del Pedido</h5>
+
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Subtotal:</span>
+                        <span class="fw-semibold text-dark">${{ "%.2f"|format(total) }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Impuestos (IVA 0%):</span>
+                        <span class="fw-semibold text-dark">$0.00</span>
+                    </div>
+                    <hr class="my-3">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <span class="fs-5 fw-bold text-dark">Total a Pagar:</span>
+                        <span class="fs-4 fw-bold text-success">${{ "%.2f"|format(total) }}</span>
+                    </div>
+
+                    <!-- Botón Confirmar Compra -->
+                    <button type="submit" class="btn btn-success btn-lg w-100 py-3 rounded-3 shadow fw-bold mb-2">
+                        <i class="bi bi-check-circle-fill me-2"></i> Confirmar y Facturar
+                    </button>
+
+                    <!-- Botón Vaciar Carrito -->
+                    <button type="button" class="btn btn-outline-secondary w-100 py-2 rounded-3" onclick="if(confirm('¿Seguro que deseas vaciar todo el carrito?')) document.getElementById('form-vaciar-carrito').submit();">
+                        <i class="bi bi-trash3 me-1"></i> Vaciar Carrito
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Formulario oculto para vaciar carrito -->
+    <form id="form-vaciar-carrito" action="{{ url_for('vaciar_carrito') }}" method="POST" class="d-none">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    </form>
+    {% endif %}
+</div>
+
+<!-- Estilos y Script para iluminar las tarjetas y alternar paneles -->
+<style>
+    .opcion-pago {
+        transition: all 0.25s ease-in-out;
+        border: 2px solid #e9ecef !important;
+    }
+    .opcion-pago:hover {
+        border-color: #0d6efd !important;
+        transform: translateY(-3px);
+    }
+    .opcion-pago.activa {
+        border-color: #0d6efd !important;
+        background-color: #f8fbff;
+    }
+</style>
+
+<script>
+function cambiarMetodo(tipo) {
+    const panels = {
+        'efectivo': document.getElementById('detalle-efectivo'),
+        'transferencia': document.getElementById('detalle-transferencia'),
+        'tarjeta': document.getElementById('detalle-tarjeta')
+    };
+
+    const radios = {
+        'efectivo': document.getElementById('pago_efectivo'),
+        'transferencia': document.getElementById('pago_transf'),
+        'tarjeta': document.getElementById('pago_tarjeta')
+    };
+
+    // 1. Marcar obligatoriamente el radio button correspondiente en el DOM
+    if (radios[tipo]) {
+        radios[tipo].checked = true;
+    }
+
+    // 2. Ocultar todos los paneles de detalle
+    Object.values(panels).forEach(p => { 
+        if (p) p.classList.add('d-none'); 
+    });
+
+    // 3. Mostrar el panel correspondiente
+    if (panels[tipo]) {
+        panels[tipo].classList.remove('d-none');
+    }
+
+    // 4. Actualizar estilos visuales activos en las tarjetas
+    document.querySelectorAll('.opcion-pago').forEach(c => c.classList.remove('activa'));
+    if (tipo === 'efectivo') {
+        const el = document.querySelector('label[for="pago_efectivo"]');
+        if (el) el.classList.add('activa');
+    } else if (tipo === 'transferencia') {
+        const el = document.querySelector('label[for="pago_transf"]');
+        if (el) el.classList.add('activa');
+    } else if (tipo === 'tarjeta') {
+        const el = document.querySelector('label[for="pago_tarjeta"]');
+        if (el) el.classList.add('activa');
+    }
+}
+
+// Inicializar al cargar
+document.addEventListener('DOMContentLoaded', () => {
+    cambiarMetodo('efectivo');
+});
+</script>
+{% endblock %}

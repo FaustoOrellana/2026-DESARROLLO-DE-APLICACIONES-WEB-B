@@ -1,7 +1,8 @@
 <nav id="navbar-techmanager" class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
   <div class="container">
-    <a class="navbar-brand fw-bold" href="{{ url_for('inicio') }}">
-      <i class="bi bi-cpu-fill text-primary me-2"></i>TechManager
+    <a class="navbar-brand fw-bold d-flex align-items-center" href="{{ url_for('inicio') }}">
+      <img src="{{ url_for('static', filename='img/TechManager_Emblem.png') }}" alt="Logo" style="width: 26px; height: 26px; object-fit: contain;" class="me-2">
+      <span>TechManager</span>
     </a>
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarTechmanagerContent" aria-controls="navbarTechmanagerContent" aria-expanded="false" aria-label="Toggle navigation">
@@ -11,55 +12,92 @@
     <div class="collapse navbar-collapse" id="navbarTechmanagerContent">
       <!-- Menú principal -->
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <!-- Inicio: siempre visible -->
+        <!-- 1. Inicio: Siempre visible para todos -->
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('inicio') }}">
             <i class="bi bi-house-door me-1"></i>Inicio
           </a>
         </li>
 
-        <!-- Dashboard: visible solo al iniciar sesión -->
         {% if current_user.is_authenticated %}
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('dashboard') }}">
-            <i class="bi bi-speedometer2 me-1"></i>Dashboard
-          </a>
-        </li>
-        {% endif %}
+          <!-- 2. Dashboard: Visible para cualquier usuario autenticado -->
+          <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('dashboard') }}">
+              <i class="bi bi-speedometer2 me-1"></i>Dashboard
+            </a>
+          </li>
 
-        <!-- Módulos de gestión: visibles siempre para ver la estructura corporativa -->
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('productos') }}">
-            <i class="bi bi-box-seam me-1"></i>Productos
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('clientes') }}">
-            <i class="bi bi-people me-1"></i>Clientes
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('proveedores') }}">
-            <i class="bi bi-truck me-1"></i>Proveedores
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('facturacion') }}">
-            <i class="bi bi-receipt me-1"></i>Facturación
-          </a>
-        </li>
+          <!-- 3. Catálogo de Productos -->
+          <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('productos') }}">
+              <i class="bi bi-box-seam me-1"></i>Productos
+            </a>
+          </li>
+
+          <!-- 4. GESTIÓN CORPORATIVA: SOLO ADMIN Y OPERADOR -->
+          {% if current_user.tiene_rol('admin', 'operador') %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('clientes') }}">
+                <i class="bi bi-people me-1"></i>Clientes
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('facturacion') }}">
+                <i class="bi bi-receipt me-1"></i>Facturación
+              </a>
+            </li>
+          {% endif %}
+
+          <!-- 5. PROVEEDORES: EXCLUSIVO PARA ADMINISTRADOR -->
+          {% if current_user.es_admin() %}
+            <li class="nav-item">
+              <a class="nav-link text-warning fw-semibold" href="{{ url_for('proveedores') }}">
+                <i class="bi bi-truck me-1"></i>Proveedores
+              </a>
+            </li>
+          {% endif %}
+
+          <!-- 6. SECCIÓN CLIENTE: CARRITO Y COMPRAS -->
+          {% if current_user.rol == 'usuario' %}
+            <li class="nav-item">
+              <a class="nav-link text-info fw-semibold" href="{{ url_for('mis_facturas') }}">
+                <i class="bi bi-bag-check me-1"></i>Mis Compras
+              </a>
+            </li>
+
+            <li class="nav-item">
+              <a class="nav-link position-relative d-inline-flex align-items-center" href="{{ url_for('ver_carrito') }}">
+                <i class="bi bi-cart3 me-1"></i>Carrito
+                {% if session.get('carrito') %}
+                  <span class="badge rounded-pill bg-danger border border-light ms-1" style="font-size: 0.68rem;">
+                    {{ session['carrito']|length }}
+                  </span>
+                {% endif %}
+              </a>
+            </li>
+          {% endif %}
+        {% endif %}
       </ul>
 
-      <!-- Lado derecho: Control de acceso según sesión -->
-      <ul class="navbar-nav ms-auto align-items-center">
+      <!-- Lado derecho: Sesión y Autenticación -->
+      <ul class="navbar-nav ms-auto align-items-lg-center">
         {% if current_user.is_authenticated %}
-          <li class="nav-item me-3">
-            <span class="navbar-text text-light fw-semibold">
-              <i class="bi bi-person-circle text-info me-1"></i>{{ current_user.usuario }}
-            </span>
+          <li class="nav-item me-lg-3 my-2 my-lg-0 text-light d-flex align-items-center">
+            <i class="bi bi-person-circle fs-5 me-2 text-primary"></i>
+            <span class="fw-semibold">{{ current_user.usuario }}</span>
+            
+            <!-- Badge con color según el rol -->
+            {% if current_user.es_admin() %}
+              <span class="badge bg-danger text-uppercase ms-2" style="font-size: 0.7rem;">Admin</span>
+            {% elif current_user.rol == 'operador' %}
+              <span class="badge bg-warning text-dark text-uppercase ms-2" style="font-size: 0.7rem;">Operador</span>
+            {% else %}
+              <span class="badge bg-info text-dark text-uppercase ms-2" style="font-size: 0.7rem;">Usuario</span>
+            {% endif %}
           </li>
+
           <li class="nav-item">
-            <a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">
+            <a class="btn btn-outline-danger btn-sm w-100 w-lg-auto" href="{{ url_for('logout') }}">
               <i class="bi bi-box-arrow-right me-1"></i>Cerrar sesión
             </a>
           </li>
@@ -70,7 +108,7 @@
             </a>
           </li>
           <li class="nav-item">
-            <a class="btn btn-primary btn-sm ms-lg-2" href="{{ url_for('registro') }}">
+            <a class="btn btn-primary btn-sm ms-lg-2 mt-2 mt-lg-0" href="{{ url_for('registro') }}">
               <i class="bi bi-person-plus me-1"></i>Registrarse
             </a>
           </li>

@@ -12,13 +12,18 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <span class="badge bg-light text-dark border px-3 py-2 rounded-3">
-                <i class="bi bi-clock me-1"></i> Período 2026
+                <i class="bi bi-clock me-1"></i> Período {{ sistema.periodo if (sistema and sistema.periodo) else '2026' }}
             </span>
+            {% if current_user.es_admin() %}
+            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 rounded-3">
+                <i class="bi bi-shield-lock me-1"></i> Administrador
+            </span>
+            {% endif %}
         </div>
     </div>
 
-    <!-- Tarjetas de Métricas Estadísticas -->
-    <div class="row g-3 mb-4">
+    <!-- 1. Tarjetas de Métricas Estadísticas Generales -->
+    <div class="row g-3 mb-3">
         <!-- Tarjeta Productos -->
         <div class="col-12 col-sm-6 col-lg-3">
             <div class="card border-0 shadow-sm rounded-4 h-100">
@@ -64,7 +69,7 @@
             </div>
         </div>
 
-        <!-- Tarjeta Facturación -->
+        <!-- Tarjeta Facturas -->
         <div class="col-12 col-sm-6 col-lg-3">
             <div class="card border-0 shadow-sm rounded-4 h-100">
                 <div class="card-body d-flex align-items-center p-3">
@@ -80,8 +85,117 @@
         </div>
     </div>
 
-    <!-- Accesos rápidos a los módulos -->
-    <div class="card border-0 shadow-sm rounded-4 p-4">
+    <!-- 2. Tarjetas de Resumen Financiero y Control de Stock -->
+    <div class="row g-3 mb-4">
+        <!-- Total Recaudado (Pagadas) -->
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-success border-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small fw-semibold d-block">Total Recaudado</span>
+                        <h3 class="fw-bold text-success mb-0">${{ "%.2f"|format(total_ingresos) }}</h3>
+                    </div>
+                    <div class="bg-success-subtle text-success p-3 rounded-4">
+                        <i class="bi bi-cash-stack fs-3"></i>
+                    </div>
+                </div>
+                <small class="text-muted mt-2 d-block">Facturas en estado Pagada</small>
+            </div>
+        </div>
+
+        <!-- Total Pendiente de Cobro -->
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-warning border-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small fw-semibold d-block">Por Cobrar / Conciliar</span>
+                        <h3 class="fw-bold text-warning-emphasis mb-0">${{ "%.2f"|format(total_pendiente) }}</h3>
+                    </div>
+                    <div class="bg-warning-subtle text-warning-emphasis p-3 rounded-4">
+                        <i class="bi bi-clock-history fs-3"></i>
+                    </div>
+                </div>
+                <small class="text-muted mt-2 d-block">Efectivo y Transferencias</small>
+            </div>
+        </div>
+
+        <!-- Alerta de Stock Crítico -->
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-danger border-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="text-muted small fw-semibold d-block">Stock Crítico (≤ 5 unids.)</span>
+                        <h3 class="fw-bold text-danger mb-0">{{ productos_bajo_stock }}</h3>
+                    </div>
+                    <div class="bg-danger-subtle text-danger p-3 rounded-4">
+                        <i class="bi bi-exclamation-triangle fs-3"></i>
+                    </div>
+                </div>
+                <small class="text-muted mt-2 d-block">Productos que requieren reposición</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Cobros Pendientes de Conciliación Rápida -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white mb-4">
+        <div class="card-header bg-white py-3 px-4 d-flex justify-content-between align-items-center border-bottom">
+            <div>
+                <h5 class="fw-bold text-dark m-0">
+                    <i class="bi bi-hourglass-split text-warning me-2"></i>Facturas Pendientes de Cobro
+                </h5>
+                <small class="text-muted">Recepción de pagos contra entrega y transferencias bancarias</small>
+            </div>
+            <a href="{{ url_for('facturacion') }}" class="btn btn-sm btn-outline-secondary rounded-pill px-3">
+                Ver todas en Facturación
+            </a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Nº Comprobante</th>
+                        <th>Cliente</th>
+                        <th>Método</th>
+                        <th>Total</th>
+                        <th class="text-end pe-4">Acción Rápida</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in pendientes_recientes %}
+                    <tr>
+                        <td class="ps-4 fw-bold font-monospace text-primary">{{ f.numero }}</td>
+                        <td class="fw-semibold text-dark">{{ f.cliente }}</td>
+                        <td>
+                            <span class="badge bg-light text-dark border px-2 py-1">
+                                <i class="bi bi-wallet2 text-primary me-1"></i> {{ f.metodo_pago }}
+                            </span>
+                        </td>
+                        <td class="fw-bold text-dark">${{ "%.2f"|format(f.monto) }}</td>
+                        <td class="text-end pe-4">
+                            <form action="{{ url_for('cambiar_estado_factura', id_factura=f.id) }}" method="POST" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="id_estado" value="1"/>
+                                <button type="submit" class="btn btn-sm btn-success rounded-3 px-3" onclick="return confirm('¿Confirmas el cobro y recepción de dinero de la factura {{ f.numero }}?');">
+                                    <i class="bi bi-cash-coin me-1"></i> Cobrar Ahora
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4 text-muted">
+                            <i class="bi bi-check-circle-fill text-success fs-3 d-block mb-1"></i>
+                            ¡Al día! No tienes comprobantes pendientes de verificación o cobro.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 4. Accesos rápidos a los módulos -->
+    <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
         <h5 class="fw-bold text-dark mb-3"><i class="bi bi-grid-fill text-primary me-2"></i>Gestión Rápida del Sistema</h5>
         <div class="row g-3">
             <div class="col-12 col-md-3">

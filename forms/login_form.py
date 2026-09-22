@@ -9,4 +9,7 @@ class LoginForm(FlaskForm):
     password = PasswordField('Contraseña', validators=[
         DataRequired(message='La contraseña es obligatoria.')
     ])
+    captcha = StringField('Código de Seguridad', validators=[
+        DataRequired(message='El código CAPTCHA es obligatorio.')
+    ])
     submit = SubmitField('Iniciar Sesión')

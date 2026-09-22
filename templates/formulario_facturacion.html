@@ -3,58 +3,258 @@
 {% block content %}
 <div class="container my-4">
     <div class="row justify-content-center">
-        <div class="col-md-8">
-            <h3 class="mb-4">{{ titulo if titulo else "Formulario de Facturación" }}</h3>
+        <div class="col-md-9">
+            <h3 class="mb-4 fw-bold text-dark">{{ titulo if titulo else "Nueva Factura" }}</h3>
 
-            <form method="POST">
+            <form method="POST" id="formFactura">
                 {{ form.hidden_tag() }}
 
-                <div class="mb-3">
-                    {{ form.numero.label(class="form-label") }}
-                    {{ form.numero(class="form-control") }}
-                    {% for e in form.numero.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
+                <!-- Fila 1: Nº Factura y Cliente -->
+                <div class="row">
+                    <div class="col-12 col-md-4 mb-3">
+                        {{ form.numero.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.numero(class="form-control", placeholder="Ej: FAC-2026-026") }}
+                        {% for e in form.numero.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="col-12 col-md-8 mb-3">
+                        {{ form.cliente.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.cliente(class="form-select") }}
+                        {% for e in form.cliente.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
                 </div>
 
-                <div class="mb-3">
-                    {{ form.cliente.label(class="form-label") }}
-                    {{ form.cliente(class="form-select") }}
-                    {% for e in form.cliente.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
+                <!-- Fila 2: Fecha, Estado y Método de Pago -->
+                <div class="row">
+                    <div class="col-12 col-md-4 mb-3">
+                        {{ form.fecha.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.fecha(class="form-control") }}
+                        {% for e in form.fecha.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="col-12 col-md-4 mb-3">
+                        {{ form.estado.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.estado(class="form-select") }}
+                        {% for e in form.estado.errors %}
+                            <div class="text-danger small mt-1">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="col-12 col-md-4 mb-3">
+                        <label for="id_metodo_pago" class="form-label text-dark fw-semibold">Forma de Pago</label>
+                        <select name="id_metodo_pago" id="id_metodo_pago" class="form-select">
+                            {% for m in metodos_lista %}
+                                <option value="{{ m['id'] if m is mapping else m[0] }}">
+                                    {{ m['nombre'] if m is mapping else m[1] }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
 
-                <div class="mb-3">
-                    {{ form.fecha.label(class="form-label") }}
-                    {{ form.fecha(class="form-control") }}
-                    {% for e in form.fecha.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
+                <!-- Recuadro de Productos Dinámicos -->
+                <div class="card p-3 my-4 bg-light border shadow-sm rounded-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <label class="form-label text-dark fw-bold m-0 fs-5">Productos de la Factura</label>
+                            <div class="small text-muted">Ajuste cantidad o precio unitario según requiera. El sistema restringe excesos de stock.</div>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" onclick="agregarFila()">
+                            + Añadir Producto
+                        </button>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered bg-white align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 38%;">Nombre del Producto</th>
+                                    <th style="width: 14%;" class="text-center">Stock Disp.</th>
+                                    <th style="width: 16%;" class="text-end">Precio ($)</th>
+                                    <th style="width: 14%;" class="text-center">Cantidad</th>
+                                    <th style="width: 14%;" class="text-end">Subtotal ($)</th>
+                                    <th style="width: 4%;" class="text-center"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="cuerpoTablaProductos">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
-                <div class="mb-3">
-                    {{ form.monto.label(class="form-label") }}
-                    {{ form.monto(class="form-control") }}
+                <!-- Monto Total Calculado -->
+                <div class="mb-4">
+                    {{ form.monto.label(class="form-label text-dark fw-semibold") }}
+                    {{ form.monto(class="form-control text-end fw-bold fs-5", id="campoMonto", readonly=True) }}
                     {% for e in form.monto.errors %}
                         <div class="text-danger small mt-1">{{ e }}</div>
                     {% endfor %}
                 </div>
 
-                <div class="mb-3">
-                    {{ form.estado.label(class="form-label") }}
-                    {{ form.estado(class="form-select") }}
-                    {% for e in form.estado.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
-
+                <!-- Botones Guardar / Cancelar -->
                 <div class="d-flex gap-2">
-                    {{ form.submit(class="btn btn-primary") }}
-                    <a href="{{ url_for('facturacion') }}" class="btn btn-secondary">Cancelar</a>
+                    {{ form.submit(class="btn btn-primary px-4") }}
+                    <a href="{{ url_for('facturacion') }}" class="btn btn-secondary px-4">Cancelar</a>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<!-- Bloques de datos JSON puros -->
+<script id="data-catalogo-json" type="application/json">
+{{ productos_lista | tojson }}
+</script>
+
+<script id="data-detalles-json" type="application/json">
+{{ (detalles_guardados or []) | tojson }}
+</script>
+
+<!-- Código JavaScript -->
+<script>
+const catalogoProductos = JSON.parse(document.getElementById('data-catalogo-json').textContent);
+const itemsPrecargados = JSON.parse(document.getElementById('data-detalles-json').textContent);
+
+function crearFila(idSel = "", cant = 1, prec = null, stockMax = null) {
+    const tbody = document.getElementById('cuerpoTablaProductos');
+    const tr = document.createElement('tr');
+
+    let opciones = '<option value="">Seleccione un producto</option>';
+    let precioAsignado = prec;
+    let stockAsignado = stockMax;
+
+    catalogoProductos.forEach(p => {
+        let selected = '';
+        let stockDisponible = p.stock;
+
+        if (idSel !== "" && p.id == idSel) {
+            selected = 'selected';
+            if (stockMax !== null) stockDisponible = stockMax;
+            if (precioAsignado === null) precioAsignado = p.precio;
+            if (stockAsignado === null) stockAsignado = stockDisponible;
+        }
+
+        opciones += `<option value="${p.id}" data-precio="${p.precio}" data-stock="${stockDisponible}" ${selected}>${p.nombre}</option>`;
+    });
+
+    if (precioAsignado === null) precioAsignado = 0.00;
+    if (stockAsignado === null) stockAsignado = 0;
+
+    tr.innerHTML = `
+        <td>
+            <select name="producto_id[]" class="form-select form-select-sm" required onchange="cambioDeProducto(this)">
+                ${opciones}
+            </select>
+        </td>
+        <td class="text-center">
+            <span class="badge ${stockAsignado > 0 ? 'bg-success' : 'bg-danger'} badge-stock">${stockAsignado}</span>
+        </td>
+        <td>
+            <input type="number" step="0.01" min="0" name="precio[]" class="form-control form-control-sm text-end inp-precio" value="${parseFloat(precioAsignado).toFixed(2)}" oninput="actualizarSuma()">
+        </td>
+        <td>
+            <input type="number" name="cantidad[]" class="form-control form-control-sm text-center inp-cantidad" min="1" max="${stockAsignado || 1}" value="${cant}" required oninput="limitarStock(this)">
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm text-end inp-subtotal fw-semibold" value="${(cant * precioAsignado).toFixed(2)}" readonly>
+        </td>
+        <td class="text-center">
+            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="quitarFila(this)">✕</button>
+        </td>
+    `;
+    tbody.appendChild(tr);
+    actualizarSuma();
+}
+
+function agregarFila() {
+    crearFila();
+}
+
+function cambioDeProducto(selectElem) {
+    const tr = selectElem.closest('tr');
+    const opcion = selectElem.options[selectElem.selectedIndex];
+    const precio = parseFloat(opcion.getAttribute('data-precio')) || 0.0;
+    const stock = parseInt(opcion.getAttribute('data-stock'), 10) || 0;
+
+    const badgeStock = tr.querySelector('.badge-stock');
+    const inpPrecio = tr.querySelector('.inp-precio');
+    const inpCantidad = tr.querySelector('.inp-cantidad');
+
+    badgeStock.textContent = stock;
+    badgeStock.className = stock > 0 ? 'badge bg-success badge-stock' : 'badge bg-danger badge-stock';
+
+    inpPrecio.value = precio.toFixed(2);
+    inpCantidad.setAttribute('max', stock > 0 ? stock : 1);
+
+    if (parseInt(inpCantidad.value, 10) > stock) {
+        inpCantidad.value = stock > 0 ? stock : 1;
+    }
+    actualizarSuma();
+}
+
+function limitarStock(inputCant) {
+    const tr = inputCant.closest('tr');
+    const selectProd = tr.querySelector('select[name="producto_id[]"]');
+    const opt = selectProd.options[selectProd.selectedIndex];
+
+    const maxStock = parseInt(opt.getAttribute('data-stock'), 10) || 1;
+    let cant = parseInt(inputCant.value, 10);
+
+    if (isNaN(cant) || cant < 1) {
+        if (inputCant.value !== "") {
+            inputCant.value = 1;
+        }
+        actualizarSuma();
+        return;
+    }
+
+    if (cant > maxStock) {
+        inputCant.value = maxStock;
+        alert("No puede superar el stock disponible de " + maxStock + " unidades.");
+    }
+    actualizarSuma();
+}
+
+function quitarFila(btn) {
+    const tbody = document.getElementById('cuerpoTablaProductos');
+    if (tbody.children.length > 1) {
+        btn.closest('tr').remove();
+        actualizarSuma();
+    } else {
+        alert("La factura debe tener al menos un producto.");
+    }
+}
+
+function actualizarSuma() {
+    let granTotal = 0.0;
+    document.querySelectorAll('#cuerpoTablaProductos tr').forEach(fila => {
+        const precio = parseFloat(fila.querySelector('.inp-precio').value) || 0.0;
+        const cant = parseInt(fila.querySelector('.inp-cantidad').value) || 0;
+        const sub = precio * cant;
+        fila.querySelector('.inp-subtotal').value = sub.toFixed(2);
+        granTotal += sub;
+    });
+    const campoMonto = document.getElementById('campoMonto');
+    if (campoMonto) {
+        campoMonto.value = granTotal.toFixed(2);
+    }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    if (itemsPrecargados.length > 0) {
+        itemsPrecargados.forEach(i => {
+            crearFila(i.id_producto, i.cantidad, i.precio, i.stock);
+        });
+    } else {
+        agregarFila();
+    }
+});
+</script>
 {% endblock %}

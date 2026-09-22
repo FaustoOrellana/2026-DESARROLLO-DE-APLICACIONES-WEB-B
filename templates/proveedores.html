@@ -18,7 +18,7 @@
         </div>
     </div>
 
-    <!-- Tarjeta con la tabla intacta -->
+    <!-- Tarjeta con la tabla -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -29,6 +29,7 @@
                         <th>Contacto Principal</th>
                         <th>Teléfono</th>
                         <th>Categoría</th>
+                        <th>Ciudad</th>
                         <th class="text-end pe-4">Acciones</th>
                     </tr>
                 </thead>
@@ -41,6 +42,9 @@
                         <td>{{ p.telefono }}</td>
                         <td>
                             <span class="badge bg-light text-dark border rounded-2 px-2 py-1">{{ p.categoria }}</span>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary rounded-2 px-2 py-1">{{ p.ciudad if p.ciudad else 'No asignada' }}</span>
                         </td>
                         <td class="text-end pe-4 text-nowrap">
                             <div class="btn-group btn-group-sm" role="group">
@@ -55,7 +59,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center py-4 text-muted">
+                        <td colspan="7" class="text-center py-4 text-muted">
                             No hay proveedores registrados en el sistema.
                         </td>
                     </tr>
@@ -85,6 +89,7 @@
             <div class="modal-footer bg-light border-0">
                 <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
                 <form action="{{ url_for('eliminar_proveedor', id=p.id) }}" method="POST" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <button type="submit" class="btn btn-danger px-3 rounded-3">
                         <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
                     </button>

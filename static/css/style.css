@@ -183,3 +183,14 @@ body {
 .btn {
     transition: all 0.2s ease-in-out;
 }
+@media print {
+    body { background-color: #fff; }
+    .no-print { display: none !important; }
+    .invoice-card { box-shadow: none; margin: 0; padding: 0; width: 100%; max-width: 100%; border: none !important; }
+    
+    /* Fuerza al navegador a incluir colores y logos al imprimir o exportar a PDF */
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+}

@@ -3,9 +3,7 @@
 {% block title %}Productos | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
-<!-- Se usa w-100 para no chocar con el container de base.html -->
 <div class="w-100">
-    <!-- Encabezado adaptable: se apila en móvil y se alinea en pantallas medianas -->
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
         <div>
             <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Catálogo Corporativo</span>
@@ -13,13 +11,14 @@
         </div>
         <div class="d-flex align-items-center gap-2 gap-sm-3 flex-wrap">
             <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Total: {{ productos|length }}</span>
+            {% if current_user.rol in ['admin', 'operador'] %}
             <a href="{{ url_for('formulario_producto') }}" class="btn btn-primary fw-semibold px-3 py-2 rounded-3 text-nowrap">
                 <i class="bi bi-plus-lg me-1"></i> Nuevo Producto
             </a>
+            {% endif %}
         </div>
     </div>
 
-    <!-- Tarjeta con la tabla -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -52,14 +51,28 @@
                             {% endif %}
                         </td>
                         <td class="text-end pe-4 text-nowrap">
-                            <div class="btn-group btn-group-sm" role="group">
-                                <a href="{{ url_for('editar_producto', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
-                                    <i class="bi bi-pencil-square"></i> Editar
-                                </a>
-                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar">
-                                    <i class="bi bi-trash"></i> Eliminar
-                                </button>
-                            </div>
+                            {% if current_user.rol == 'usuario' %}
+                                {% if p.stock > 0 %}
+                                    <form action="{{ url_for('agregar_al_carrito', id_producto=p.id) }}" method="POST" class="d-inline-flex align-items-center gap-1">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <input type="number" name="cantidad" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center" style="width: 65px;" title="Cantidad deseada">
+                                        <button type="submit" class="btn btn-success btn-sm rounded-3 shadow-sm" title="Agregar al carrito">
+                                            <i class="bi bi-cart-plus me-1"></i> Agregar
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <span class="badge bg-secondary">Sin Stock</span>
+                                {% endif %}
+                            {% else %}
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <a href="{{ url_for('editar_producto', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
+                                        <i class="bi bi-pencil-square"></i> Editar
+                                    </a>
+                                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar">
+                                        <i class="bi bi-trash"></i> Eliminar
+                                    </button>
+                                </div>
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
@@ -75,32 +88,34 @@
     </div>
 </div>
 
-<!-- Modales ubicados fuera de la estructura de la tabla -->
-{% for p in productos %}
-<div class="modal fade" id="modalEliminar{{ p.id }}" tabindex="-1" aria-labelledby="modalLabel{{ p.id }}" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered text-start">
-        <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title fw-bold" id="modalLabel{{ p.id }}">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body py-4">
-                <p class="mb-1">¿Está seguro de que desea eliminar permanentemente el producto?</p>
-                <p class="fw-bold text-dark fs-5 mb-0">#{{ p.id }} - {{ p.nombre }}</p>
-                <small class="text-muted">Esta acción no se puede deshacer y afectará la base de datos PostgreSQL.</small>
-            </div>
-            <div class="modal-footer bg-light border-0">
-                <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                <form action="{{ url_for('eliminar_producto', id=p.id) }}" method="POST" class="d-inline">
-                    <button type="submit" class="btn btn-danger px-3 rounded-3">
-                        <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
-                    </button>
-                </form>
+{% if current_user.rol in ['admin', 'operador'] %}
+    {% for p in productos %}
+    <div class="modal fade" id="modalEliminar{{ p.id }}" tabindex="-1" aria-labelledby="modalLabel{{ p.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered text-start">
+            <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title fw-bold" id="modalLabel{{ p.id }}">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <p class="mb-1">¿Está seguro de que desea eliminar permanentemente el producto?</p>
+                    <p class="fw-bold text-dark fs-5 mb-0">#{{ p.id }} - {{ p.nombre }}</p>
+                    <small class="text-muted">Esta acción no se puede deshacer y afectará la base de datos PostgreSQL.</small>
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <form action="{{ url_for('eliminar_producto', id=p.id) }}" method="POST" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <button type="submit" class="btn btn-danger px-3 rounded-3">
+                            <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
-</div>
-{% endfor %}
+    {% endfor %}
+{% endif %}
 {% endblock %}

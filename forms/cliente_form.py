@@ -1,7 +1,6 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, SubmitField
-from wtforms.validators import DataRequired, Length, Regexp
-
+from wtforms import StringField, SelectField, SubmitField
+from wtforms.validators import DataRequired, Length, Regexp, Optional
 
 class ClienteForm(FlaskForm):
     nombre = StringField(
@@ -36,4 +35,9 @@ class ClienteForm(FlaskForm):
             )
         ]
     )
-    submit = SubmitField('Guardar')
+    id_ciudad = SelectField(
+        'Ciudad',
+        coerce=str,
+        validators=[Optional()]
+    )
+    submit = SubmitField('Guardar Cliente')

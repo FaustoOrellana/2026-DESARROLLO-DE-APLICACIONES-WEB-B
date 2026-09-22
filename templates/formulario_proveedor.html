@@ -9,6 +9,7 @@
             <form method="POST">
                 {{ form.hidden_tag() }}
 
+                <!-- Empresa / Razón Social -->
                 <div class="mb-3">
                     {{ form.nombre.label(class="form-label") }}
                     {{ form.nombre(class="form-control") }}
@@ -17,6 +18,7 @@
                     {% endfor %}
                 </div>
 
+                <!-- Contacto -->
                 <div class="mb-3">
                     {{ form.contacto.label(class="form-label") }}
                     {{ form.contacto(class="form-control") }}
@@ -25,6 +27,7 @@
                     {% endfor %}
                 </div>
 
+                <!-- Teléfono -->
                 <div class="mb-3">
                     {{ form.telefono.label(class="form-label") }}
                     {{ form.telefono(class="form-control") }}
@@ -33,6 +36,7 @@
                     {% endfor %}
                 </div>
 
+                <!-- Categoría -->
                 <div class="mb-3">
                     {{ form.categoria.label(class="form-label") }}
                     {{ form.categoria(class="form-select") }}
@@ -41,6 +45,18 @@
                     {% endfor %}
                 </div>
 
+                <!-- Ciudad (Opcional según esquema de PostgreSQL) -->
+                {% if form.id_ciudad %}
+                <div class="mb-3">
+                    {{ form.id_ciudad.label(class="form-label") }}
+                    {{ form.id_ciudad(class="form-select") }}
+                    {% for e in form.id_ciudad.errors %}
+                        <div class="text-danger small mt-1">{{ e }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Botones de Acción -->
                 <div class="d-flex gap-2">
                     {{ form.submit(class="btn btn-primary") }}
                     <a href="{{ url_for('proveedores') }}" class="btn btn-secondary">Cancelar</a>
