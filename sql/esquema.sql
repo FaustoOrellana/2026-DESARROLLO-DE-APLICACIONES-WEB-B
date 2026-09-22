@@ -47,10 +47,10 @@ CREATE TABLE estados_factura (
     nombre VARCHAR(50) NOT NULL UNIQUE
 );
 
--- Métodos de Pago
+-- Métodos de Pago (nombre estandarizado con el backend)
 CREATE TABLE metodos_pago (
     id SERIAL PRIMARY KEY,
-    metodo VARCHAR(50) NOT NULL UNIQUE
+    nombre VARCHAR(50) NOT NULL UNIQUE
 );
 
 -- Directorio de Clientes
@@ -126,7 +126,7 @@ CREATE TABLE detalle_facturas (
         REFERENCES productos(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
-
+-- INSERTS
 INSERT INTO ciudades (nombre, provincia) VALUES
 ('Machala', 'El Oro'),
 ('Pasaje', 'El Oro'),
@@ -150,7 +150,7 @@ INSERT INTO estados_factura (nombre) VALUES
 ('Pendiente'),
 ('Anulada');
 
-INSERT INTO metodos_pago (metodo) VALUES
+INSERT INTO metodos_pago (nombre) VALUES
 ('Efectivo'),
 ('Transferencia Bancaria'),
 ('Tarjeta de Crédito / Débito');
