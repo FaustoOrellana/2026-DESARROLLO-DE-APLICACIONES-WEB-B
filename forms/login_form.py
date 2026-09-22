@@ -3,8 +3,8 @@ from wtforms import StringField, PasswordField, SubmitField
 from wtforms.validators import DataRequired
 
 class LoginForm(FlaskForm):
-    usuario = StringField('Nombre de Usuario', validators=[
-        DataRequired(message='El nombre de usuario es obligatorio.')
+    usuario = StringField('Usuario, Cédula o Correo', validators=[
+        DataRequired(message='Debe ingresar su usuario, cédula o correo electrónico.')
     ])
     password = PasswordField('Contraseña', validators=[
         DataRequired(message='La contraseña es obligatoria.')

@@ -31,6 +31,15 @@
                         {% endfor %}
                     </div>
 
+                    <!-- Campo Teléfono de Contacto -->
+                    <div class="mb-3">
+                        {{ form.telefono.label(class="form-label fw-bold") }}
+                        {{ form.telefono(class="form-control" + (" is-invalid" if form.telefono.errors else ""), placeholder="Ej: 0991234567", maxlength="15") }}
+                        {% for error in form.telefono.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
                     <!-- Campo Correo Electrónico -->
                     <div class="mb-3">
                         {{ form.email.label(class="form-label fw-bold") }}

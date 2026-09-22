@@ -20,14 +20,16 @@
         </li>
 
         {% if current_user.is_authenticated %}
-          <!-- 2. Dashboard: Visible para cualquier usuario autenticado -->
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('dashboard') }}">
-              <i class="bi bi-speedometer2 me-1"></i>Dashboard
-            </a>
-          </li>
+          <!-- 2. Dashboard: EXCLUSIVO PARA ADMIN Y OPERADOR -->
+          {% if current_user.tiene_rol('admin', 'operador') %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('dashboard') }}">
+                <i class="bi bi-speedometer2 me-1"></i>Dashboard
+              </a>
+            </li>
+          {% endif %}
 
-          <!-- 3. Catálogo de Productos -->
+          <!-- 3. Catálogo de Productos: Visible para todos los usuarios autenticados -->
           <li class="nav-item">
             <a class="nav-link" href="{{ url_for('productos') }}">
               <i class="bi bi-box-seam me-1"></i>Productos

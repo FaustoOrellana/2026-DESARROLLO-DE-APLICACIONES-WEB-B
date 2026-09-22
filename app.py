@@ -133,7 +133,9 @@ def captcha_image():
 @app.route('/registro', methods=['GET', 'POST'])
 def registro():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        if current_user.tiene_rol('admin', 'operador'):
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('mis_facturas'))
 
     form = UsuarioForm()
     if form.validate_on_submit():
@@ -155,6 +157,10 @@ def registro():
         ruc_campo = getattr(form, 'ruc', None)
         ruc_valor = ruc_campo.data.strip() if ruc_campo and ruc_campo.data else request.form.get('ruc', '').strip()
         ruc_cliente = ruc_valor if ruc_valor else None
+
+        # Capturar teléfono obligatorio
+        tel_campo = getattr(form, 'telefono', None)
+        telefono_cliente = tel_campo.data.strip() if tel_campo and tel_campo.data else request.form.get('telefono', '').strip()
 
         conn = obtener_conexion()
         if conn:
@@ -189,7 +195,7 @@ def registro():
                 cursor.execute(
                     '''INSERT INTO clientes (nombre, email, telefono, ruc, usuario_id)
                        VALUES (%s, %s, %s, %s, %s);''',
-                    (nombre_usuario, email_usuario, 'Sin registrar', ruc_cliente, nuevo_id)
+                    (nombre_usuario, email_usuario, telefono_cliente, ruc_cliente, nuevo_id)
                 )
 
                 conn.commit()
