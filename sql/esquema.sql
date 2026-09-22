@@ -127,7 +127,7 @@ CREATE TABLE detalle_facturas (
         REFERENCES productos(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
-
+-- Inserción de Catálogos Base
 INSERT INTO ciudades (nombre, provincia) VALUES
 ('Machala', 'El Oro'),
 ('Pasaje', 'El Oro'),
@@ -156,14 +156,18 @@ INSERT INTO metodos_pago (nombre) VALUES
 ('Transferencia Bancaria'),
 ('Tarjeta de Crédito / Débito');
 
+-- Inserción de Usuarios Administrativos
 INSERT INTO usuarios (usuario, email, password, rol, intentos_fallidos, bloqueado_hasta) VALUES
 ('faustoadmin', 'admin@techmanager.com', 'scrypt:32768:8:1$MfPRitcKzSSCO3jx$f56e9e41884cc72b0137f2314c95424d97686cb798aaeaa8aca31040fe13b4993aec0bbd09faad47b8e1dd5d4efa63568e1c41fed488eaaa0bdae3289b1b74cf', 'admin', 0, NULL),
 ('operador1', 'operador@techmanager.com', 'scrypt:32768:8:1$5p6lMK2YPhCTOi1n$ee443f69367e90721e2fa09b54da501e608b2fc65f18398f8981d02b8a11fe8b5529761515ebc63db07a180363933e186e10889df8b0cf77a49f928982ad3c14', 'operador', 0, NULL);
+
+-- Inserción de Proveedores
 INSERT INTO proveedores (nombre, contacto, telefono, id_categoria, id_ciudad) VALUES
 ('TechData Solutions Ecuador', 'Ing. Marcos Vivanco', '0998877665', 1, 3),
 ('Cisco Distribution Partner', 'Lic. Valeria Castro', '0983344556', 3, 3),
 ('Software & Cloud Solutions', 'Ing. David Salinas', '0971239874', 2, 1);
 
+-- Inserción de Productos
 INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca) VALUES
 ('Servidor Dell PowerEdge R450 16GB RAM', 2450.00, 6, 1, 1),
 ('Switch Cisco Catalyst 24 Puertos Gigabit', 680.00, 14, 3, 2),
@@ -171,16 +175,19 @@ INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca) VALUES
 ('Licencia Microsoft Windows Server 2022', 890.00, 20, 2, 3),
 ('Firewall Fortinet FortiGate 40F', 750.00, 8, 4, 5);
 
+-- Inserción de Clientes
 INSERT INTO clientes (nombre, ruc, telefono, email, id_ciudad, usuario_id) VALUES
 ('Corporación El Rosado', '0990004199001', '042598000', 'compras@elrosado.com', 3, NULL),
 ('Importadora Tomala S.A.', '0791728394001', '072930111', 'contacto@tomala.ec', 1, NULL),
 ('Soluciones Informáticas Machala', '0704982134001', '0987654321', 'info@simachala.com', 1, NULL);
 
+-- Inserción de Facturas Iniciales (Formato Estándar Correlativo FAC-YYYY-XXX)
 INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago) VALUES
-('FAC-001-0001', CURRENT_DATE - INTERVAL '2 days', 2450.00, 1, 1, 2),
-('FAC-001-0002', CURRENT_DATE - INTERVAL '1 day', 1100.00, 2, 1, 1),
-('FAC-001-0003', CURRENT_DATE, 750.00, 3, 2, 3);
+('FAC-2026-001', CURRENT_DATE - INTERVAL '2 days', 2450.00, 1, 1, 2),
+('FAC-2026-002', CURRENT_DATE - INTERVAL '1 day', 1100.00, 2, 1, 1),
+('FAC-2026-003', CURRENT_DATE, 750.00, 3, 2, 3);
 
+-- Inserción de Detalle de Facturas
 INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario) VALUES
 (1, 1, 1, 2450.00),
 (2, 3, 1, 420.00),
