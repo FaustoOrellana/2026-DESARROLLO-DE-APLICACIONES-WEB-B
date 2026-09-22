@@ -17,7 +17,9 @@ CREATE TABLE usuarios (
     usuario VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(120) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
-    rol VARCHAR(20) NOT NULL DEFAULT 'usuario'
+    rol VARCHAR(20) NOT NULL DEFAULT 'usuario',
+    intentos_fallidos INT DEFAULT 0,
+    bloqueado_hasta TIMESTAMP NULL
 );
 
 -- Catálogo de Ciudades
