@@ -11,8 +11,6 @@ DROP TABLE IF EXISTS categorias CASCADE;
 DROP TABLE IF EXISTS ciudades CASCADE;
 DROP TABLE IF EXISTS usuarios CASCADE;
 
--- 2. DEFINICIÓN DE ESTRUCTURA RELACIONAL
-
 -- Control de Acceso, Autenticación y Roles (RBAC)
 CREATE TABLE usuarios (
     id SERIAL PRIMARY KEY,
@@ -55,7 +53,7 @@ CREATE TABLE metodos_pago (
     metodo VARCHAR(50) NOT NULL UNIQUE
 );
 
--- Directorio de Clientes (Vinculado a Usuarios y Ciudades)
+-- Directorio de Clientes
 CREATE TABLE clientes (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
@@ -84,7 +82,7 @@ CREATE TABLE proveedores (
         REFERENCES ciudades(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- Catálogo e Inventario de Productos
+-- Inventario de Productos
 CREATE TABLE productos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
@@ -104,18 +102,18 @@ CREATE TABLE facturas (
     numero VARCHAR(30) NOT NULL UNIQUE,
     fecha DATE NOT NULL DEFAULT CURRENT_DATE,
     monto NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (monto >= 0),
-    cliente_id INT NOT NULL,
-    estado_id INT NOT NULL DEFAULT 1,
-    metodo_pago_id INT DEFAULT 1,
-    CONSTRAINT fk_factura_cliente FOREIGN KEY (cliente_id) 
+    id_cliente INT NOT NULL,
+    id_estado INT NOT NULL DEFAULT 1,
+    id_metodo_pago INT DEFAULT 1,
+    CONSTRAINT fk_factura_cliente FOREIGN KEY (id_cliente) 
         REFERENCES clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT fk_factura_estado FOREIGN KEY (estado_id) 
+    CONSTRAINT fk_factura_estado FOREIGN KEY (id_estado) 
         REFERENCES estados_factura(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT fk_factura_metodo FOREIGN KEY (metodo_pago_id) 
+    CONSTRAINT fk_factura_metodo FOREIGN KEY (id_metodo_pago) 
         REFERENCES metodos_pago(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- Detalle de Factura (Relación N:M)
+-- Detalle de Factura
 CREATE TABLE detalle_facturas (
     id_factura INT NOT NULL,
     id_producto INT NOT NULL,
@@ -128,20 +126,18 @@ CREATE TABLE detalle_facturas (
         REFERENCES productos(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- 1. Ciudades
+
 INSERT INTO ciudades (nombre, provincia) VALUES
 ('Machala', 'El Oro'),
 ('Pasaje', 'El Oro'),
 ('Guayaquil', 'Guayas');
 
--- 2. Categorías
 INSERT INTO categorias (nombre, descripcion) VALUES
 ('Hardware', 'Servidores, estaciones de trabajo, periféricos y equipamiento físico'),
 ('Software', 'Sistemas operativos corporativos, suites de gestión y aplicativos'),
 ('Redes', 'Switches administrables, routers de borde, cableado y access points'),
 ('Licencias', 'Suscripciones de seguridad perimetral, bases de datos y software empresarial');
 
--- 3. Marcas
 INSERT INTO marcas (nombre) VALUES
 ('Dell Enterprise'),
 ('Cisco Systems'),
@@ -149,30 +145,25 @@ INSERT INTO marcas (nombre) VALUES
 ('MikroTik'),
 ('Fortinet');
 
--- 4. Estados de Factura
 INSERT INTO estados_factura (nombre) VALUES
 ('Pagada'),
 ('Pendiente'),
 ('Anulada');
 
--- 5. Métodos de Pago (Unificado con Tarjeta de Crédito / Débito)
 INSERT INTO metodos_pago (metodo) VALUES
 ('Efectivo'),
 ('Transferencia Bancaria'),
 ('Tarjeta de Crédito / Débito');
 
--- 6. Usuarios Base del Sistema (Admin y Operador con hashes de producción)
 INSERT INTO usuarios (usuario, email, password, rol) VALUES
 ('faustoadmin', 'admin@techmanager.com', 'scrypt:32768:8:1$D7OeHHJgNHjOd4Vr$c6c7b95c38d79ef842cf561902c9137dfd4ed3708048e50e404b901a1db79745da79bdfa0a1d41829676742a032d8fe529ee39ce016f4ad167104b2b2bbfbe901', 'admin'),
 ('operador1', 'operador@techmanager.com', 'scrypt:32768:8:1$u54wmqNSTA3v29mW$158f2a8ca9d2c08ca18768072dcc2cc39ddb535ddd8d9fb19e1c39aa925890e87ef87ca8da39b561c16ce638dbf9ecda2bc844782bb0a0684cf05a6396e95b07', 'operador');
 
--- 7. Proveedores Iniciales
 INSERT INTO proveedores (nombre, contacto, telefono, id_categoria, id_ciudad) VALUES
 ('TechData Solutions Ecuador', 'Ing. Marcos Vivanco', '0998877665', 1, 3),
 ('Cisco Distribution Partner', 'Lic. Valeria Castro', '0983344556', 3, 3),
 ('Software & Cloud Solutions', 'Ing. David Salinas', '0971239874', 2, 1);
 
--- 8. Inventario de Productos Base
 INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca) VALUES
 ('Servidor Dell PowerEdge R450 16GB RAM', 2450.00, 6, 1, 1),
 ('Switch Cisco Catalyst 24 Puertos Gigabit', 680.00, 14, 3, 2),
