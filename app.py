@@ -1578,7 +1578,7 @@ def descargar_factura(id_factura):
             SELECT COALESCE(p.nombre, 'Producto General') AS nombre, 
                    df.cantidad, 
                    df.precio_unitario, 
-                   df.subtotal
+                   ROUND(df.cantidad * df.precio_unitario, 2) AS subtotal
             FROM detalle_facturas df
             LEFT JOIN productos p ON df.id_producto = p.id
             WHERE df.id_factura = %s;
@@ -1586,7 +1586,7 @@ def descargar_factura(id_factura):
         
         filas_detalles = cursor.fetchall()
         cursor.close()
-
+        
         detalles_lista = [
             {
                 'nombre': d['nombre'] if isinstance(d, dict) else d[0],
