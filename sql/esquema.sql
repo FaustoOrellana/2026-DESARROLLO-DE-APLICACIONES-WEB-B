@@ -47,7 +47,7 @@ CREATE TABLE estados_factura (
     nombre VARCHAR(50) NOT NULL UNIQUE
 );
 
--- Métodos de Pago (nombre estandarizado con el backend)
+-- Métodos de Pago
 CREATE TABLE metodos_pago (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL UNIQUE
@@ -126,7 +126,7 @@ CREATE TABLE detalle_facturas (
         REFERENCES productos(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- INSERTS
+
 INSERT INTO ciudades (nombre, provincia) VALUES
 ('Machala', 'El Oro'),
 ('Pasaje', 'El Oro'),
@@ -170,3 +170,19 @@ INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca) VALUES
 ('Router MikroTik CCR2004-16G-2S+', 420.00, 10, 3, 4),
 ('Licencia Microsoft Windows Server 2022', 890.00, 20, 2, 3),
 ('Firewall Fortinet FortiGate 40F', 750.00, 8, 4, 5);
+
+INSERT INTO clientes (nombre, ruc, telefono, email, id_ciudad, usuario_id) VALUES
+('Corporación El Rosado', '0990004199001', '042598000', 'compras@elrosado.com', 3, NULL),
+('Importadora Tomala S.A.', '0791728394001', '072930111', 'contacto@tomala.ec', 1, NULL),
+('Soluciones Informáticas Machala', '0704982134001', '0987654321', 'info@simachala.com', 1, NULL);
+
+INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago) VALUES
+('FAC-001-0001', CURRENT_DATE - INTERVAL '2 days', 2450.00, 1, 1, 2),
+('FAC-001-0002', CURRENT_DATE - INTERVAL '1 day', 1100.00, 2, 1, 1),
+('FAC-001-0003', CURRENT_DATE, 750.00, 3, 2, 3);
+
+INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario) VALUES
+(1, 1, 1, 2450.00),
+(2, 3, 1, 420.00),
+(2, 2, 1, 680.00),
+(3, 5, 1, 750.00);
