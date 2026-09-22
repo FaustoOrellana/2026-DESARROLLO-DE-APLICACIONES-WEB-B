@@ -211,7 +211,6 @@ def registro():
 
     return render_template('registro.html', form=form, sistema=SISTEMA_INFO)
 
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -240,7 +239,6 @@ def login():
         try:
             cursor = conn.cursor()
             
-            # Busca si coincide con: usuario, email O el ruc/cédula del cliente asociado
             cursor.execute(
                 '''SELECT u.id, u.usuario, u.password, u.rol, u.intentos_fallidos, u.bloqueado_hasta, u.email 
                    FROM usuarios u
@@ -253,10 +251,11 @@ def login():
 
             if usuario_db:
                 ahora = datetime.now()
+                rol_usr = (usuario_db.get('rol') if isinstance(usuario_db, dict) else usuario_db[3]) or 'usuario'
                 bloqueado_hasta = usuario_db.get('bloqueado_hasta') if isinstance(usuario_db, dict) else usuario_db[5]
 
-                # Comprobar bloqueo temporal
-                if bloqueado_hasta and ahora < bloqueado_hasta:
+                # 1. Comprobar bloqueo temporal (SOLO si NO es admin)
+                if rol_usr != 'admin' and bloqueado_hasta and ahora < bloqueado_hasta:
                     minutos_restantes = int((bloqueado_hasta - ahora).total_seconds() / 60) + 1
                     flash(f'Cuenta bloqueada por seguridad tras 3 intentos fallidos. Intente nuevamente en {minutos_restantes} minuto(s).', 'danger')
                     cursor.close()
@@ -264,12 +263,11 @@ def login():
 
                 pass_hash = usuario_db['password'] if isinstance(usuario_db, dict) else usuario_db[2]
                 id_usr = usuario_db['id'] if isinstance(usuario_db, dict) else usuario_db[0]
-                rol_usr = (usuario_db.get('rol') if isinstance(usuario_db, dict) else usuario_db[3]) or 'usuario'
                 usr_nom = usuario_db['usuario'] if isinstance(usuario_db, dict) else usuario_db[1]
                 email_usr = usuario_db.get('email') if isinstance(usuario_db, dict) else usuario_db[6]
                 intentos_prev = (usuario_db.get('intentos_fallidos') if isinstance(usuario_db, dict) else usuario_db[4]) or 0
 
-                # Verificación de credenciales
+                # 2. Verificación de credenciales
                 if check_password_hash(pass_hash, clave_candidata):
                     cursor.execute(
                         'UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = %s;',
@@ -281,7 +279,7 @@ def login():
                     usuario_obj = Usuario(
                         id=id_usr, 
                         usuario=usr_nom, 
-                        password=pass_hash,
+                        password=pass_hash, 
                         rol=rol_usr,
                         email=email_usr
                     )
@@ -292,29 +290,32 @@ def login():
                     if next_page:
                         return redirect(next_page)
                     
-                    # Redirección amigable por rol
                     if usuario_obj.rol == 'usuario':
                         return redirect(url_for('mis_facturas'))
                     return redirect(url_for('dashboard'))
                 else:
-                    intentos = intentos_prev + 1
-
-                    if intentos >= 3:
-                        tiempo_bloqueo = ahora + timedelta(minutes=15)
-                        cursor.execute(
-                            'UPDATE usuarios SET intentos_fallidos = %s, bloqueado_hasta = %s WHERE id = %s;',
-                            (intentos, tiempo_bloqueo, id_usr)
-                        )
-                        conn.commit()
-                        flash('Ha superado el límite de 3 intentos fallidos. Su cuenta ha sido bloqueada por 15 minutos.', 'danger')
+                    # 3. Contraseña incorrecta: distinguir entre admin y el resto
+                    if rol_usr == 'admin':
+                        flash('Contraseña de administrador incorrecta.', 'danger')
                     else:
-                        cursor.execute(
-                            'UPDATE usuarios SET intentos_fallidos = %s WHERE id = %s;',
-                            (intentos, id_usr)
-                        )
-                        conn.commit()
-                        restantes = 3 - intentos
-                        flash(f'Contraseña incorrecta. Le quedan {restantes} intento(s) antes del bloqueo.', 'warning')
+                        intentos = intentos_prev + 1
+
+                        if intentos >= 3:
+                            tiempo_bloqueo = ahora + timedelta(minutes=15)
+                            cursor.execute(
+                                'UPDATE usuarios SET intentos_fallidos = %s, bloqueado_hasta = %s WHERE id = %s;',
+                                (intentos, tiempo_bloqueo, id_usr)
+                            )
+                            conn.commit()
+                            flash('Ha superado el límite de 3 intentos fallidos. Su cuenta ha sido bloqueada por 15 minutos.', 'danger')
+                        else:
+                            cursor.execute(
+                                'UPDATE usuarios SET intentos_fallidos = %s WHERE id = %s;',
+                                (intentos, id_usr)
+                            )
+                            conn.commit()
+                            restantes = 3 - intentos
+                            flash(f'Contraseña incorrecta. Le quedan {restantes} intento(s) antes del bloqueo.', 'warning')
                     
                     cursor.close()
             else:

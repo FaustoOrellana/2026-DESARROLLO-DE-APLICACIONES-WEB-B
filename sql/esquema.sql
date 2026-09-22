@@ -11,7 +11,6 @@ DROP TABLE IF EXISTS categorias CASCADE;
 DROP TABLE IF EXISTS ciudades CASCADE;
 DROP TABLE IF EXISTS usuarios CASCADE;
 
--- Control de Acceso, Autenticación y Roles (RBAC)
 CREATE TABLE usuarios (
     id SERIAL PRIMARY KEY,
     usuario VARCHAR(50) UNIQUE NOT NULL,
@@ -157,10 +156,9 @@ INSERT INTO metodos_pago (nombre) VALUES
 ('Transferencia Bancaria'),
 ('Tarjeta de Crédito / Débito');
 
-INSERT INTO usuarios (usuario, email, password, rol) VALUES
-('faustoadmin', 'admin@techmanager.com', 'scrypt:32768:8:1$D7OeHHJgNHjOd4Vr$c6c7b95c38d79ef842cf561902c9137dfd4ed3708048e50e404b901a1db79745da79bdfa0a1d41829676742a032d8fe529ee39ce016f4ad167104b2b2bbfbe901', 'admin'),
-('operador1', 'operador@techmanager.com', 'scrypt:32768:8:1$u54wmqNSTA3v29mW$158f2a8ca9d2c08ca18768072dcc2cc39ddb535ddd8d9fb19e1c39aa925890e87ef87ca8da39b561c16ce638dbf9ecda2bc844782bb0a0684cf05a6396e95b07', 'operador');
-
+INSERT INTO usuarios (usuario, email, password, rol, intentos_fallidos, bloqueado_hasta) VALUES
+('faustoadmin', 'admin@techmanager.com', 'scrypt:32768:8:1$MfPRitcKzSSCO3jx$f56e9e41884cc72b0137f2314c95424d97686cb798aaeaa8aca31040fe13b4993aec0bbd09faad47b8e1dd5d4efa63568e1c41fed488eaaa0bdae3289b1b74cf', 'admin', 0, NULL),
+('operador1', 'operador@techmanager.com', 'scrypt:32768:8:1$5p6lMK2YPhCTOi1n$ee443f69367e90721e2fa09b54da501e608b2fc65f18398f8981d02b8a11fe8b5529761515ebc63db07a180363933e186e10889df8b0cf77a49f928982ad3c14', 'operador', 0, NULL);
 INSERT INTO proveedores (nombre, contacto, telefono, id_categoria, id_ciudad) VALUES
 ('TechData Solutions Ecuador', 'Ing. Marcos Vivanco', '0998877665', 1, 3),
 ('Cisco Distribution Partner', 'Lic. Valeria Castro', '0983344556', 3, 3),
