@@ -33,7 +33,7 @@
                                id="inputBusquedaFacturas" 
                                name="q" 
                                class="form-control bg-light border-start-0 ps-0" 
-                               placeholder="Buscar por N° comprobante o cliente..." 
+                               placeholder="Buscar por comprobante, cliente o producto..." 
                                value="{{ q }}" 
                                autocomplete="off">
                         {% if q %}
@@ -63,6 +63,7 @@
                         <th class="ps-4">Nº Comprobante</th>
                         <th>Cliente / Razón Social</th>
                         <th>Fecha de Emisión</th>
+                        <th>Productos Facturados</th>
                         <th>Método de Pago</th>
                         <th>Monto Total ({{ sistema.moneda }})</th>
                         <th>Estado de Cobro</th>
@@ -71,36 +72,74 @@
                 </thead>
                 <tbody>
                     {% for f in facturas %}
+                    {% set fac_id = f.id if f is mapping else f[0] %}
+                    {% set fac_numero = f.numero if f is mapping else f[1] %}
+                    {% set fac_cliente = f.cliente if f is mapping else f[2] %}
+                    {% set fac_fecha = f.fecha if f is mapping else f[3] %}
+                    {% set fac_monto = f.monto if f is mapping else f[4] %}
+                    {% set fac_estado = (f.estado if f is mapping else f[5]) or 'Pagada' %}
+                    {% set fac_metodo = f.metodo_pago if f is mapping else f[6] %}
+                    {% set fac_articulos = f.total_articulos if f is mapping else f[7] %}
+                    {% set fac_resumen = f.resumen_items if f is mapping else f[8] %}
                     <tr>
-                        <td class="ps-4 fw-bold font-monospace text-primary">{{ f.numero }}</td>
-                        <td class="fw-semibold text-dark">{{ f.cliente }}</td>
-                        <td class="text-muted small">{{ f.fecha }}</td>
+                        <td class="ps-4 fw-bold font-monospace text-primary">{{ fac_numero }}</td>
+                        <td class="fw-semibold text-dark">{{ fac_cliente }}</td>
+                        <td class="text-muted small">{{ fac_fecha }}</td>
+                        
+                        <!-- Columna de Productos y Unidades -->
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-secondary-subtle text-secondary border rounded-pill px-2 py-1 small text-nowrap">
+                                    <i class="bi bi-box-seam me-1"></i>{{ fac_articulos }} unid.
+                                </span>
+                                <span class="text-truncate text-muted small" style="max-width: 230px;" title="{{ fac_resumen }}">
+                                    {{ fac_resumen }}
+                                </span>
+                            </div>
+                        </td>
+
                         <td>
                             <span class="badge bg-light text-dark border px-2 py-1">
-                                <i class="bi bi-wallet2 text-primary me-1"></i> {{ f.metodo_pago or 'Efectivo' }}
+                                <i class="bi bi-wallet2 text-primary me-1"></i> {{ fac_metodo or 'Efectivo' }}
                             </span>
                         </td>
-                        <td class="fw-bold text-dark">${{ "%.2f"|format(f.monto) }}</td>
+                        <td class="fw-bold text-dark">${{ "%.2f"|format(fac_monto|float) }}</td>
                         <td>
-                            <span class="badge bg-success rounded-pill px-2 py-1">
-                                <i class="bi bi-check-circle-fill me-1"></i> Pagada
-                            </span>
+                            {% if fac_estado|lower == 'pagada' %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 fw-semibold">
+                                    <i class="bi bi-check-circle-fill me-1"></i> Pagada
+                                </span>
+                            {% elif fac_estado|lower == 'pendiente' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-1 fw-semibold">
+                                    <i class="bi bi-clock-history me-1"></i> Pendiente
+                                </span>
+                            {% else %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1 fw-semibold">
+                                    <i class="bi bi-x-circle-fill me-1"></i> {{ fac_estado }}
+                                </span>
+                            {% endif %}
                         </td>
                         <td class="text-end pe-4 text-nowrap">
                             <div class="btn-group btn-group-sm" role="group">
-                                <!-- Botón Imprimir / Ver Comprobante -->
-                                <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-outline-primary" title="Imprimir / Ver Comprobante">
+                                <!-- Botón Imprimir: habilitado solo si está Pagada -->
+                                {% if fac_estado|lower == 'pagada' %}
+                                <a href="{{ url_for('descargar_factura', id_factura=fac_id) }}" target="_blank" class="btn btn-outline-primary" title="Imprimir / Ver Comprobante">
                                     <i class="bi bi-printer"></i>
                                 </a>
+                                {% else %}
+                                <button type="button" class="btn btn-outline-secondary opacity-50" disabled title="Bloqueado: Comprobante pendiente de pago">
+                                    <i class="bi bi-printer"></i>
+                                </button>
+                                {% endif %}
 
                                 <!-- Botón Editar -->
-                                <a href="{{ url_for('editar_factura', numero=f.numero) }}" class="btn btn-outline-warning" title="Editar">
+                                <a href="{{ url_for('editar_factura', numero=fac_numero) }}" class="btn btn-outline-warning" title="Editar">
                                     <i class="bi bi-pencil-square"></i>
                                 </a>
 
                                 <!-- Botón Anular / Eliminar (solo Admin) -->
                                 {% if current_user.rol == 'admin' %}
-                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarFac{{ f.id }}" title="Anular Factura">
+                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarFac{{ fac_id }}" title="Anular Factura">
                                     <i class="bi bi-x-circle"></i>
                                 </button>
                                 {% endif %}
@@ -109,7 +148,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">
+                        <td colspan="8" class="text-center py-5 text-muted">
                             <i class="bi bi-receipt-cutoff fs-2 d-block mb-2 text-secondary"></i>
                             No se encontraron comprobantes activos con los criterios ingresados.
                         </td>
@@ -148,27 +187,31 @@
     </div>
 </div>
 
-<!-- Modales de Confirmación de Anulación ubicados fuera de la tabla -->
+<!-- Modales de Confirmación de Anulación -->
 {% if current_user.rol == 'admin' %}
     {% for f in facturas %}
-    <div class="modal fade" id="modalEliminarFac{{ f.id }}" tabindex="-1" aria-labelledby="modalLabelFac{{ f.id }}" aria-hidden="true">
+    {% set m_id = f.id if f is mapping else f[0] %}
+    {% set m_numero = f.numero if f is mapping else f[1] %}
+    {% set m_cliente = f.cliente if f is mapping else f[2] %}
+    {% set m_monto = f.monto if f is mapping else f[4] %}
+    <div class="modal fade" id="modalEliminarFac{{ m_id }}" tabindex="-1" aria-labelledby="modalLabelFac{{ m_id }}" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered text-start">
             <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
                 <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title fw-bold" id="modalLabelFac{{ f.id }}">
+                    <h5 class="modal-title fw-bold" id="modalLabelFac{{ m_id }}">
                         <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Anulación
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body py-4">
                     <p class="mb-1 text-secondary">¿Está seguro de que desea anular el siguiente comprobante contable?</p>
-                    <p class="fw-bold font-monospace text-primary fs-5 mb-1">{{ f.numero }}</p>
-                    <p class="mb-1 text-dark">Cliente: <strong>{{ f.cliente }}</strong> | Total: <strong>${{ "%.2f"|format(f.monto) }}</strong></p>
+                    <p class="fw-bold font-monospace text-primary fs-5 mb-1">{{ m_numero }}</p>
+                    <p class="mb-1 text-dark">Cliente: <strong>{{ m_cliente }}</strong> | Total: <strong>${{ "%.2f"|format(m_monto|float) }}</strong></p>
                     <small class="text-muted">El registro cambiará al estado <strong>Anulada</strong> y los artículos facturados se reintegrarán automáticamente al stock disponible.</small>
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                    <form action="{{ url_for('eliminar_factura', numero=f.numero) }}" method="POST" class="d-inline">
+                    <form action="{{ url_for('eliminar_factura', numero=m_numero) }}" method="POST" class="d-inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <button type="submit" class="btn btn-danger px-3 rounded-3 shadow-sm">
                             <i class="bi bi-x-circle-fill me-1"></i> Sí, anular

@@ -758,28 +758,83 @@ def editar_producto(id):
     return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Producto")
 
 
-# 4. ELIMINAR (SOFT DELETE: UPDATE activo = FALSE con modified_by y commit)
+# 4. ELIMINAR / DAR DE BAJA (CONTROL ESTRICTO: STOCK E INTEGRIDAD REFERENCIAL)
 @app.route('/productos/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
 def eliminar_producto(id):
     conn = obtener_conexion()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE productos 
-                SET activo = FALSE, modified_by = %s 
-                WHERE id = %s;
-            ''', (current_user.usuario, id))
-            conn.commit()
+    if not conn:
+        flash("Error de conexión a la base de datos.", "danger")
+        return redirect(url_for('productos'))
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Obtener datos actuales del producto
+        cursor.execute("SELECT id, nombre, stock, activo FROM productos WHERE id = %s;", (id,))
+        prod = cursor.fetchone()
+
+        if not prod:
+            flash("El producto no existe o ya ha sido removido.", "warning")
             cursor.close()
-            flash('Producto dado de baja satisfactoriamente.', 'info')
-        except Exception as e:
-            conn.rollback()
-            flash(f'Error al dar de baja el producto: {e}', 'danger')
-        finally:
-            conn.close()
+            return redirect(url_for('productos'))
+
+        prod_id = extraer_columna(prod, 'id', 0)
+        prod_nombre = extraer_columna(prod, 'nombre', 1)
+        prod_stock = int(extraer_columna(prod, 'stock', 2, 0))
+        prod_activo = extraer_columna(prod, 'activo', 3, True)
+
+        if not prod_activo:
+            flash(f"El producto '{prod_nombre}' ya se encuentra dado de baja.", "info")
+            cursor.close()
+            return redirect(url_for('productos'))
+
+        # REGLA 1: BLOQUEO POR EXISTENCIA DE STOCK
+        if prod_stock > 0:
+            flash(
+                f"Acción denegada: El producto '{prod_nombre}' registra {prod_stock} unidad(es) en bodega. "
+                f"Por normativa contable, no puede desactivar un artículo con existencias físicas disponibles.",
+                "warning"
+            )
+            cursor.close()
+            return redirect(url_for('productos'))
+
+        # REGLA 2: BLOQUEO POR FACTURAS PENDIENTES DE PAGO / LIQUIDACIÓN
+        cursor.execute('''
+            SELECT COUNT(DISTINCT f.id) AS total_pendientes
+            FROM detalle_facturas df
+            INNER JOIN facturas f ON df.id_factura = f.id
+            WHERE df.id_producto = %s AND f.activo = TRUE AND f.id_estado = 2;
+        ''', (prod_id,))
+        row_pendientes = cursor.fetchone()
+        facturas_pendientes = int(extraer_columna(row_pendientes, 'total_pendientes', 0, 0))
+
+        if facturas_pendientes > 0:
+            flash(
+                f"Acción denegada: El producto '{prod_nombre}' forma parte de {facturas_pendientes} factura(s) "
+                f"pendientes de pago. Resuelva o anule dichos comprobantes antes de retirar el producto.",
+                "danger"
+            )
+            cursor.close()
+            return redirect(url_for('productos'))
+
+        # 3. Soft Delete seguro (solo cuando stock = 0 y no compromete operaciones pendientes)
+        cursor.execute('''
+            UPDATE productos 
+            SET activo = FALSE, modified_by = %s 
+            WHERE id = %s;
+        ''', (current_user.usuario, prod_id))
+
+        conn.commit()
+        cursor.close()
+        flash(f"Producto '{prod_nombre}' dado de baja satisfactoriamente del catálogo activo.", "info")
+
+    except Exception as e:
+        conn.rollback()
+        flash(f"Error al procesar la baja del producto: {e}", "danger")
+    finally:
+        conn.close()
 
     return redirect(url_for('productos'))
 
@@ -1280,7 +1335,7 @@ def eliminar_proveedor(id):
 # MÓDULO 4: FACTURACIÓN & CARRITO DE COMPRAS
 # ==============================================================================
 
-# 1. LISTADO ADMINISTRATIVO (Búsqueda, Paginación y Filtro de Activas)
+# 1. LISTADO ADMINISTRATIVO (Búsqueda, Paginación, Detalle de Productos y Filtro de Activas)
 @app.route('/facturacion')
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -1298,18 +1353,23 @@ def facturacion():
         try:
             cursor = conn.cursor()
             
-            # Filtro base: facturas activas
             where_sql = "WHERE f.activo = TRUE"
             params = []
 
+            # Permite buscar por N° comprobante, Cliente, RUC o Nombre de Producto facturado
             if q:
                 where_sql += """ AND (
                     f.numero ILIKE %s OR 
                     c.nombre ILIKE %s OR 
-                    COALESCE(c.ruc, '') ILIKE %s
+                    COALESCE(c.ruc, '') ILIKE %s OR
+                    EXISTS (
+                        SELECT 1 FROM detalle_facturas df_s
+                        INNER JOIN productos p_s ON df_s.id_producto = p_s.id
+                        WHERE df_s.id_factura = f.id AND p_s.nombre ILIKE %s
+                    )
                 )"""
                 param_busqueda = f"%{q}%"
-                params.extend([param_busqueda, param_busqueda, param_busqueda])
+                params.extend([param_busqueda, param_busqueda, param_busqueda, param_busqueda])
 
             # Conteo total para paginación
             cursor.execute(f'''
@@ -1319,22 +1379,28 @@ def facturacion():
                 {where_sql};
             ''', tuple(params))
             row_count = cursor.fetchone()
-            if row_count:
-                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
-            else:
-                total_items = 0
-
+            total_items = extraer_columna(row_count, 'total', 0, 0)
             total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
 
-            # Consulta paginada con JOINs
+            # Consulta paginada con consolidación atómica de productos
             query_datos = f'''
-                SELECT f.id, f.numero, c.nombre AS cliente, f.fecha, f.monto, 
-                       e.nombre AS estado, COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
+                SELECT f.id, 
+                       f.numero, 
+                       c.nombre AS cliente, 
+                       f.fecha, 
+                       f.monto, 
+                       e.nombre AS estado, 
+                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
+                       COALESCE(SUM(df.cantidad), 0) AS total_articulos,
+                       COALESCE(STRING_AGG(CONCAT(df.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
                 FROM facturas f
                 INNER JOIN clientes c ON f.id_cliente = c.id
                 INNER JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
+                LEFT JOIN detalle_facturas df ON df.id_factura = f.id
+                LEFT JOIN productos p ON df.id_producto = p.id
                 {where_sql}
+                GROUP BY f.id, f.numero, c.nombre, f.fecha, f.monto, e.nombre, mp.nombre
                 ORDER BY f.id DESC
                 LIMIT %s OFFSET %s;
             '''
@@ -1370,19 +1436,10 @@ def formulario_facturacion():
         flash('Error al conectar con la base de datos.', 'danger')
         return redirect(url_for('facturacion'))
 
-    clientes_bd = []
-    estados_bd = []
-    productos_bd = []
-    metodos_bd = []
-
     try:
         cursor = conn.cursor()
-        # Solo clientes y productos activos
-        cursor.execute('SELECT id, nombre FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
+        cursor.execute('SELECT id, nombre, ruc FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
         clientes_bd = cursor.fetchall()
-
-        cursor.execute('SELECT id, nombre FROM estados_factura ORDER BY id ASC;')
-        estados_bd = cursor.fetchall()
 
         cursor.execute('SELECT id, nombre FROM metodos_pago ORDER BY id ASC;')
         metodos_bd = cursor.fetchall()
@@ -1391,150 +1448,135 @@ def formulario_facturacion():
         filas_productos = cursor.fetchall()
         productos_bd = [
             {
-                'id': p['id'] if isinstance(p, dict) else p[0],
-                'nombre': str(p['nombre'] if isinstance(p, dict) else p[1]),
-                'precio': float(p['precio'] if isinstance(p, dict) else p[2]),
-                'stock': int(p['stock'] if isinstance(p, dict) else p[3])
+                'id': extraer_columna(p, 'id', 0),
+                'nombre': str(extraer_columna(p, 'nombre', 1)),
+                'precio': float(extraer_columna(p, 'precio', 2, 0.0)),
+                'stock': int(extraer_columna(p, 'stock', 3, 0))
             }
             for p in filas_productos
         ]
-        cursor.close()
-    except Exception as e:
-        flash(f"Error al cargar datos del formulario: {e}", "danger")
-    finally:
-        conn.close()
 
-    form = FacturacionForm()
-    if hasattr(form, 'cliente') and hasattr(form.cliente, 'choices'):
-        form.cliente.choices = [('', 'Seleccione un cliente')] + [
-            (str(c['id'] if isinstance(c, dict) else c[0]), c['nombre'] if isinstance(c, dict) else c[1]) 
+        form = FacturacionForm()
+        form.cliente.choices = [
+            (
+                extraer_columna(c, 'id', 0), 
+                f"{extraer_columna(c, 'nombre', 1)} - {extraer_columna(c, 'ruc', 2) or 'S/RUC'}"
+            ) 
             for c in clientes_bd
         ]
 
-    if form.validate_on_submit():
-        numero = form.numero.data.strip().upper()
-        fecha = str(form.fecha.data)
+        if form.validate_on_submit():
+            numero = form.numero.data.strip().upper()
+            fecha = form.fecha.data
+            id_cliente = form.cliente.data
+            id_estado = 1  # Emisión oficial confirmada (PAGADA)
 
-        cliente_input = str(form.cliente.data).strip()
-        id_cliente = int(cliente_input) if cliente_input.isdigit() else 1
-        if not cliente_input.isdigit():
-            for c in clientes_bd:
-                c_nom = c['nombre'] if isinstance(c, dict) else c[1]
-                c_id = c['id'] if isinstance(c, dict) else c[0]
-                if c_nom == cliente_input:
-                    id_cliente = c_id
-                    break
-
-        # Regla estricta: Únicamente permitir emisión si el estado es PAGADA (id_estado = 1)
-        estado_input = getattr(form, 'estado', None)
-        id_estado = 1
-        if estado_input and estado_input.data:
-            val_estado = str(estado_input.data).strip().capitalize()
-            for e in estados_bd:
-                e_nom = e['nombre'] if isinstance(e, dict) else e[1]
-                e_id = e['id'] if isinstance(e, dict) else e[0]
-                if e_nom == val_estado or str(e_id) == val_estado:
-                    id_estado = e_id
-                    break
-
-        if id_estado != 1:
-            flash('Regla comercial: La factura no puede ser emitida sin la confirmación de pago. Seleccione el estado "Pagada".', 'warning')
-            return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
-
-        # Capturar método de pago seleccionado
-        metodo_input = request.form.get('id_metodo_pago', '1')
-        try:
-            id_metodo_pago = int(metodo_input)
-        except (ValueError, TypeError):
-            id_metodo_pago = 1
-
-        prod_ids = request.form.getlist('producto_id[]')
-        cantidades = request.form.getlist('cantidad[]')
-        precios = request.form.getlist('precio[]')
-
-        if not prod_ids:
-            flash('Debe seleccionar al menos un producto activo para generar la factura.', 'warning')
-            return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
-
-        items_validos = []
-        total_acumulado = 0.0
-
-        conn = obtener_conexion()
-        if conn:
+            metodo_input = request.form.get('id_metodo_pago', '1')
             try:
-                cursor = conn.cursor()
-                for p_id, cant_str, prec_str in zip(prod_ids, cantidades, precios):
-                    if not p_id:
-                        continue
-                    cant = int(cant_str)
-                    prec = float(prec_str)
+                id_metodo_pago = int(metodo_input)
+            except (ValueError, TypeError):
+                id_metodo_pago = 1
 
-                    # Bloqueo pesimista para concurrencia limpia
-                    cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE;', (int(p_id),))
-                    prod_info = cursor.fetchone()
+            prod_ids = request.form.getlist('producto_id[]')
+            cantidades = request.form.getlist('cantidad[]')
+            precios = request.form.getlist('precio[]')
 
-                    stock_real = (prod_info['stock'] if isinstance(prod_info, dict) else prod_info[1]) if prod_info else 0
-                    nom_prod = (prod_info['nombre'] if isinstance(prod_info, dict) else prod_info[0]) if prod_info else ''
-
-                    if not prod_info or cant > stock_real:
-                        flash(f"Stock insuficiente para '{nom_prod}'. Disponible: {stock_real}, solicitado: {cant}.", 'danger')
-                        cursor.close()
-                        return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
-
-                    subtotal = round(cant * prec, 2)
-                    total_acumulado += subtotal
-                    items_validos.append({
-                        'id_producto': int(p_id),
-                        'cantidad': cant,
-                        'precio': prec,
-                        'subtotal': subtotal
-                    })
-
-                cursor.execute('''
-                    INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago, created_by, activo)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
-                    RETURNING id;
-                ''', (numero, fecha, total_acumulado, id_cliente, 1, id_metodo_pago, current_user.usuario))
-
-                nueva_fac = cursor.fetchone()
-                id_factura = nueva_fac['id'] if isinstance(nueva_fac, dict) else nueva_fac[0]
-
-                for item in items_validos:
-                    cursor.execute('UPDATE productos SET stock = stock - %s, modified_by = %s WHERE id = %s;', 
-                                   (item['cantidad'], current_user.usuario, item['id_producto']))
-                    cursor.execute('''
-                        INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
-                        VALUES (%s, %s, %s, %s, %s);
-                    ''', (id_factura, item['id_producto'], item['cantidad'], item['precio'], item['subtotal']))
-
-                conn.commit()
+            if not prod_ids:
+                flash('Debe seleccionar al menos un producto activo para generar la factura.', 'warning')
                 cursor.close()
-                flash(f'Factura {numero} emitida y pagada con éxito. Stock descontado del catálogo.', 'success')
-                return redirect(url_for('facturacion'))
+                return render_template(
+                    'formulario_facturacion.html', 
+                    form=form, 
+                    sistema=SISTEMA_INFO, 
+                    titulo="Nueva Factura", 
+                    productos_lista=productos_bd, 
+                    metodos_lista=metodos_bd
+                )
 
-            except Exception as e:
-                conn.rollback()
-                error_msg = str(e)
-                if 'facturas_numero_key' in error_msg or 'llave duplicada' in error_msg or 'unique constraint' in error_msg.lower():
-                    flash(f'El número de factura "{numero}" ya se encuentra registrado. Asigne un nuevo número correlativo.', 'warning')
-                else:
-                    flash(f'Error al procesar la factura: {e}', 'danger')
-                return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
-            finally:
-                conn.close()
+            items_validos = []
+            total_acumulado = 0.0
 
-    return render_template(
-        'formulario_facturacion.html', 
-        form=form, 
-        sistema=SISTEMA_INFO, 
-        titulo="Nueva Factura", 
-        productos_lista=productos_bd, 
-        metodos_lista=metodos_bd, 
-        detalles_guardados=[]
-    )
+            for p_id, cant_str, prec_str in zip(prod_ids, cantidades, precios):
+                if not p_id or str(p_id).strip() == '':
+                    continue
+                cant = int(cant_str)
+                prec = float(prec_str)
+
+                cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE;', (int(p_id),))
+                prod_info = cursor.fetchone()
+                stock_real = int(extraer_columna(prod_info, 'stock', 1, 0))
+                nom_prod = str(extraer_columna(prod_info, 'nombre', 0, 'Producto'))
+
+                if not prod_info or cant > stock_real:
+                    conn.rollback()
+                    flash(f"Stock insuficiente para '{nom_prod}'. Disponible: {stock_real}, solicitado: {cant}.", 'danger')
+                    cursor.close()
+                    return render_template(
+                        'formulario_facturacion.html', 
+                        form=form, 
+                        sistema=SISTEMA_INFO, 
+                        titulo="Nueva Factura", 
+                        productos_lista=productos_bd, 
+                        metodos_lista=metodos_bd
+                    )
+
+                subtotal = round(cant * prec, 2)
+                total_acumulado += subtotal
+                items_validos.append({
+                    'id_producto': int(p_id),
+                    'cantidad': cant,
+                    'precio': prec,
+                    'subtotal': subtotal
+                })
+
+            # 1. Insertar Cabecera de Factura
+            cursor.execute('''
+                INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago, created_by, activo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
+                RETURNING id;
+            ''', (numero, fecha, total_acumulado, id_cliente, id_estado, id_metodo_pago, current_user.usuario))
+
+            nueva_fac = cursor.fetchone()
+            id_factura = extraer_columna(nueva_fac, 'id', 0)
+
+            # 2. Insertar Detalle (El Trigger de la base de datos descuenta el stock una única vez)
+            for item in items_validos:
+                cursor.execute('''
+                    INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
+                    VALUES (%s, %s, %s, %s, %s);
+                ''', (id_factura, item['id_producto'], item['cantidad'], item['precio'], item['subtotal']))
+
+            conn.commit()
+            cursor.close()
+            flash(f'Factura {numero} emitida y registrada exitosamente.', 'success')
+            return redirect(url_for('facturacion'))
+
+        cursor.close()
+        return render_template(
+            'formulario_facturacion.html', 
+            form=form, 
+            sistema=SISTEMA_INFO, 
+            titulo="Nueva Factura", 
+            productos_lista=productos_bd, 
+            metodos_lista=metodos_bd, 
+            detalles_guardados=[]
+        )
+
+    except Exception as e:
+        conn.rollback()
+        error_msg = str(e)
+        if 'facturas_numero_key' in error_msg or 'unique constraint' in error_msg.lower():
+            flash(f'El número de comprobante ya existe. Asigne un nuevo número correlativo.', 'warning')
+        elif 'productos_stock_check' in error_msg:
+            flash('Error de inventario: La cantidad solicitada supera las existencias físicas disponibles.', 'danger')
+        else:
+            flash(f'Error al procesar la factura: {e}', 'danger')
+        return redirect(url_for('facturacion'))
+    finally:
+        conn.close()
 
 
-# 3. MODIFICAR FACTURA (ADMIN / OPERADOR)
+# 3. MODIFICAR FACTURA (ADMIN / OPERADOR - PERSISTENCIA DE ESTADO Y CONSULTA NOMINAL)
 @app.route('/facturacion/editar/<numero>', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -1544,188 +1586,188 @@ def editar_factura(numero):
         flash('Error de conexión con la base de datos.', 'danger')
         return redirect(url_for('facturacion'))
 
-    factura = None
-    clientes_bd = []
-    estados_bd = []
-    productos_bd = []
-    detalles_bd = []
-
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM facturas WHERE numero = %s AND activo = TRUE;', (numero,))
+
+        # Consulta con nombres de columna explícitos para evitar desajustes posicionales
+        if str(numero).isdigit():
+            cursor.execute('''
+                SELECT id, numero, fecha, monto, id_cliente, id_estado, id_metodo_pago 
+                FROM facturas WHERE id = %s AND activo = TRUE;
+            ''', (int(numero),))
+        else:
+            cursor.execute('''
+                SELECT id, numero, fecha, monto, id_cliente, id_estado, id_metodo_pago 
+                FROM facturas WHERE numero = %s AND activo = TRUE;
+            ''', (numero,))
+        
         factura = cursor.fetchone()
 
-        cursor.execute('SELECT id, nombre FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
+        if not factura:
+            flash('Factura no encontrada o dada de baja.', 'warning')
+            cursor.close()
+            return redirect(url_for('facturacion'))
+
+        fac_id = extraer_columna(factura, 'id', 0)
+        fac_num = extraer_columna(factura, 'numero', 1)
+        fac_fecha = extraer_columna(factura, 'fecha', 2)
+        fac_monto = extraer_columna(factura, 'monto', 3)
+        fac_id_cliente = extraer_columna(factura, 'id_cliente', 4)
+        estado_anterior_id = int(extraer_columna(factura, 'id_estado', 5, 1))
+        fac_id_metodo = int(extraer_columna(factura, 'id_metodo_pago', 6, 1))
+
+        cursor.execute('SELECT id, nombre, ruc FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
         clientes_bd = cursor.fetchall()
 
-        cursor.execute('SELECT id, nombre FROM estados_factura ORDER BY id ASC;')
-        estados_bd = cursor.fetchall()
+        cursor.execute('SELECT id, nombre FROM metodos_pago ORDER BY id ASC;')
+        metodos_bd = cursor.fetchall()
 
         cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE activo = TRUE ORDER BY nombre ASC;')
         productos_bd = [
             {
-                'id': p['id'] if isinstance(p, dict) else p[0],
-                'nombre': str(p['nombre'] if isinstance(p, dict) else p[1]),
-                'precio': float(p['precio'] if isinstance(p, dict) else p[2]),
-                'stock': int(p['stock'] if isinstance(p, dict) else p[3])
+                'id': extraer_columna(p, 'id', 0),
+                'nombre': str(extraer_columna(p, 'nombre', 1)),
+                'precio': float(extraer_columna(p, 'precio', 2, 0.0)),
+                'stock': int(extraer_columna(p, 'stock', 3, 0))
             }
             for p in cursor.fetchall()
         ]
 
-        if factura:
-            fac_id = factura['id'] if isinstance(factura, dict) else factura[0]
-            cursor.execute('''
-                SELECT d.id_producto, p.nombre, d.precio_unitario, d.cantidad, d.subtotal, p.stock
-                FROM detalle_facturas d
-                INNER JOIN productos p ON d.id_producto = p.id
-                WHERE d.id_factura = %s;
-            ''', (fac_id,))
-            detalles_bd = [
-                {
-                    'id_producto': d['id_producto'] if isinstance(d, dict) else d[0],
-                    'cantidad': int(d['cantidad'] if isinstance(d, dict) else d[3]),
-                    'precio': float(d['precio_unitario'] if isinstance(d, dict) else d[2]),
-                    'stock': int(d['stock'] if isinstance(d, dict) else d[5]) + int(d['cantidad'] if isinstance(d, dict) else d[3])
-                }
-                for d in cursor.fetchall()
-            ]
+        # Extraer líneas facturadas con stock compensado
+        cursor.execute('''
+            SELECT d.id_producto, p.nombre, d.precio_unitario, d.cantidad, d.subtotal, p.stock
+            FROM detalle_facturas d
+            INNER JOIN productos p ON d.id_producto = p.id
+            WHERE d.id_factura = %s;
+        ''', (fac_id,))
+        detalles_bd = [
+            {
+                'id_producto': extraer_columna(d, 'id_producto', 0),
+                'nombre': extraer_columna(d, 'nombre', 1),
+                'precio': float(extraer_columna(d, 'precio_unitario', 2, 0.0)),
+                'cantidad': int(extraer_columna(d, 'cantidad', 3, 0)),
+                'subtotal': float(extraer_columna(d, 'subtotal', 4, 0.0)),
+                'stock': int(extraer_columna(d, 'stock', 5, 0)) + (int(extraer_columna(d, 'cantidad', 3, 0)) if estado_anterior_id != 3 else 0)
+            }
+            for d in cursor.fetchall()
+        ]
 
-        cursor.close()
-    except Exception as e:
-        flash(f"Error al cargar factura para edición: {e}", "danger")
-    finally:
-        conn.close()
-
-    if not factura:
-        flash('Factura no encontrada o dada de baja.', 'warning')
-        return redirect(url_for('facturacion'))
-
-    form = FacturacionForm()
-    if hasattr(form, 'cliente') and hasattr(form.cliente, 'choices'):
-        form.cliente.choices = [('', 'Seleccione un cliente')] + [
-            (str(c['id'] if isinstance(c, dict) else c[0]), c['nombre'] if isinstance(c, dict) else c[1]) 
+        form = FacturacionForm()
+        form.cliente.choices = [
+            (extraer_columna(c, 'id', 0), f"{extraer_columna(c, 'nombre', 1)} - {extraer_columna(c, 'ruc', 2) or 'S/RUC'}")
             for c in clientes_bd
         ]
 
-    fac_id = factura['id'] if isinstance(factura, dict) else factura[0]
-    fac_num = factura['numero'] if isinstance(factura, dict) else factura[1]
-    fac_fecha = factura['fecha'] if isinstance(factura, dict) else factura[2]
-    fac_monto = factura['monto'] if isinstance(factura, dict) else factura[3]
-    fac_id_cliente = factura['id_cliente'] if isinstance(factura, dict) else factura[4]
-    fac_id_estado = factura['id_estado'] if isinstance(factura, dict) else factura[5]
+        if request.method == 'GET':
+            form.numero.data = fac_num
+            form.fecha.data = fac_fecha
+            form.monto.data = fac_monto
+            form.cliente.data = fac_id_cliente
+            form.estado.data = estado_anterior_id
 
-    if request.method == 'GET':
-        form.numero.data = fac_num
-        form.fecha.data = fac_fecha
-        form.monto.data = fac_monto
-        if hasattr(form, 'cliente'):
-            form.cliente.data = str(fac_id_cliente)
-        if hasattr(form, 'estado'):
-            for e in estados_bd:
-                e_id = e['id'] if isinstance(e, dict) else e[0]
-                e_nom = e['nombre'] if isinstance(e, dict) else e[1]
-                if e_id == fac_id_estado:
-                    form.estado.data = str(e_id) if form.estado.choices and form.estado.choices[0][0].isdigit() else e_nom
-                    break
+            cursor.close()
+            return render_template(
+                'formulario_facturacion.html', 
+                form=form, 
+                sistema=SISTEMA_INFO, 
+                titulo="Editar Factura", 
+                productos_lista=productos_bd, 
+                metodos_lista=metodos_bd,
+                detalles_guardados=detalles_bd,
+                factura={'id_metodo_pago': fac_id_metodo}
+            )
 
-    elif form.validate_on_submit():
-        nuevo_numero = form.numero.data.strip().upper()
-        fecha = str(form.fecha.data)
+        elif form.validate_on_submit():
+            nuevo_numero = form.numero.data.strip().upper()
+            fecha = form.fecha.data
+            id_cliente = form.cliente.data
+            nuevo_estado_id = int(form.estado.data)
 
-        cliente_input = str(form.cliente.data).strip()
-        id_cliente = int(cliente_input) if cliente_input.isdigit() else fac_id_cliente
-        if not cliente_input.isdigit():
-            for c in clientes_bd:
-                c_nom = c['nombre'] if isinstance(c, dict) else c[1]
-                c_id = c['id'] if isinstance(c, dict) else c[0]
-                if c_nom == cliente_input:
-                    id_cliente = c_id
-                    break
+            metodo_input = request.form.get('id_metodo_pago', str(fac_id_metodo))
+            try:
+                nuevo_metodo_pago = int(metodo_input)
+            except (ValueError, TypeError):
+                nuevo_metodo_pago = fac_id_metodo
 
-        prod_ids = request.form.getlist('producto_id[]')
-        cantidades = request.form.getlist('cantidad[]')
-        precios = request.form.getlist('precio[]')
+            prod_ids = request.form.getlist('producto_id[]')
+            cantidades = request.form.getlist('cantidad[]')
+            precios = request.form.getlist('precio[]')
 
-        items_validos = []
-        total_acumulado = 0.0
+            # 1. Devolver el inventario anterior si la factura no estaba ya anulada
+            if estado_anterior_id != 3:
+                cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
+                for it in cursor.fetchall():
+                    p_ant = extraer_columna(it, 'id_producto', 0)
+                    c_ant = extraer_columna(it, 'cantidad', 1)
+                    cursor.execute('UPDATE productos SET stock = stock + %s WHERE id = %s;', (c_ant, p_ant))
 
-        for p_id, cant_str, prec_str in zip(prod_ids, cantidades, precios):
-            if p_id and cant_str:
+            # 2. Reemplazar líneas de detalle
+            cursor.execute('DELETE FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
+
+            total_acumulado = 0.0
+            for p_id, cant_str, prec_str in zip(prod_ids, cantidades, precios):
+                if not p_id or str(p_id).strip() == '':
+                    continue
                 cant = int(cant_str)
                 prec = float(prec_str)
                 subt = round(cant * prec, 2)
                 total_acumulado += subt
-                items_validos.append({
-                    'id_producto': int(p_id),
-                    'cantidad': cant,
-                    'precio': prec,
-                    'subtotal': subt
-                })
-
-        monto_final = total_acumulado if items_validos else float(form.monto.data or 0.0)
-
-        conn = obtener_conexion()
-        if conn:
-            try:
-                cursor = conn.cursor()
-
-                # Revertir stock previo de forma atómica
-                cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
-                previos = cursor.fetchall()
-                for prev in previos:
-                    prev_cant = prev['cantidad'] if isinstance(prev, dict) else prev[1]
-                    prev_pid = prev['id_producto'] if isinstance(prev, dict) else prev[0]
-                    cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
-                                   (prev_cant, current_user.usuario, prev_pid))
-
-                cursor.execute('DELETE FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
-
-                # Validar y descontar nuevo inventario
-                for item in items_validos:
-                    cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE;', (item['id_producto'],))
-                    prod_info = cursor.fetchone()
-                    stock_disp = (prod_info['stock'] if isinstance(prod_info, dict) else prod_info[1]) if prod_info else 0
-                    nom_prod = (prod_info['nombre'] if isinstance(prod_info, dict) else prod_info[0]) if prod_info else ''
-
-                    if not prod_info or item['cantidad'] > stock_disp:
-                        conn.rollback()
-                        flash(f"Stock insuficiente para '{nom_prod}'. Disponible: {stock_disp}, solicitado: {item['cantidad']}.", 'danger')
-                        cursor.close()
-                        return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Factura", productos_lista=productos_bd, detalles_guardados=detalles_bd)
-
-                    cursor.execute('UPDATE productos SET stock = stock - %s, modified_by = %s WHERE id = %s;', 
-                                   (item['cantidad'], current_user.usuario, item['id_producto']))
-                    cursor.execute('''
-                        INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
-                        VALUES (%s, %s, %s, %s, %s);
-                    ''', (fac_id, item['id_producto'], item['cantidad'], item['precio'], item['subtotal']))
 
                 cursor.execute('''
-                    UPDATE facturas
-                    SET numero = %s, fecha = %s, monto = %s, id_cliente = %s, id_estado = 1, modified_by = %s
-                    WHERE id = %s;
-                ''', (nuevo_numero, fecha, monto_final, id_cliente, current_user.usuario, fac_id))
+                    INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
+                    VALUES (%s, %s, %s, %s, %s);
+                ''', (fac_id, int(p_id), cant, prec, subt))
 
-                conn.commit()
-                cursor.close()
-                flash('Factura actualizada y stock recalculado correctamente.', 'success')
-                return redirect(url_for('facturacion'))
+                # Descontar stock solo si el nuevo estado es Pagada (1) o Pendiente (2)
+                if nuevo_estado_id != 3:
+                    cursor.execute('UPDATE productos SET stock = stock - %s WHERE id = %s;', (cant, int(p_id)))
 
-            except Exception as e:
-                conn.rollback()
-                error_msg = str(e)
-                if 'facturas_numero_key' in error_msg or 'llave duplicada' in error_msg or 'unique constraint' in error_msg.lower():
-                    flash(f'El número de factura "{nuevo_numero}" ya está registrado en otra factura.', 'warning')
-                else:
-                    flash(f'Error al modificar la factura: {e}', 'danger')
-                return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Factura", productos_lista=productos_bd, detalles_guardados=detalles_bd)
-            finally:
-                conn.close()
+            monto_final = total_acumulado if prod_ids else float(form.monto.data or 0.0)
 
-    return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Factura", productos_lista=productos_bd, detalles_guardados=detalles_bd)
+            # 3. Actualización de factura persistiendo id_estado
+            cursor.execute('''
+                UPDATE facturas
+                SET numero = %s, 
+                    fecha = %s, 
+                    monto = %s, 
+                    id_cliente = %s, 
+                    id_estado = %s, 
+                    id_metodo_pago = %s, 
+                    modified_by = %s
+                WHERE id = %s;
+            ''', (nuevo_numero, fecha, monto_final, id_cliente, nuevo_estado_id, nuevo_metodo_pago, current_user.usuario, fac_id))
+
+            conn.commit()
+            cursor.close()
+            flash('Factura actualizada y estado sincronizado correctamente.', 'success')
+            return redirect(url_for('facturacion'))
+
+        else:
+            for campo, errores in form.errors.items():
+                for err in errores:
+                    flash(f"Error en {campo}: {err}", "danger")
+
+        cursor.close()
+        return render_template(
+            'formulario_facturacion.html', 
+            form=form, 
+            sistema=SISTEMA_INFO, 
+            titulo="Editar Factura", 
+            productos_lista=productos_bd, 
+            metodos_lista=metodos_bd,
+            detalles_guardados=detalles_bd,
+            factura={'id_metodo_pago': fac_id_metodo}
+        )
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error al modificar la factura: {e}', 'danger')
+        return redirect(url_for('facturacion'))
+    finally:
+        conn.close()
 
 
-# 4. ELIMINAR / ANULAR FACTURA (SOFT DELETE CON REINTEGRO DE STOCK Y AUDITORÍA)
+# 4. ELIMINAR / ANULAR FACTURA (SOFT DELETE CON REINTEGRO AUTOMÁTICO)
 @app.route('/facturacion/eliminar/<numero>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -1734,26 +1776,31 @@ def eliminar_factura(numero):
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM facturas WHERE numero = %s AND activo = TRUE;', (numero,))
+            if str(numero).isdigit():
+                cursor.execute('SELECT id, numero, id_estado FROM facturas WHERE id = %s AND activo = TRUE;', (int(numero),))
+            else:
+                cursor.execute('SELECT id, numero, id_estado FROM facturas WHERE numero = %s AND activo = TRUE;', (numero,))
             fac_row = cursor.fetchone()
 
             if not fac_row:
-                flash('La factura no existe o ya fue anulada previamente.', 'warning')
+                flash('La factura no existe o ya fue anulada.', 'warning')
                 cursor.close()
                 return redirect(url_for('facturacion'))
 
-            fac_id = fac_row['id'] if isinstance(fac_row, dict) else fac_row[0]
+            fac_id = fac_row[0]
+            fac_num = fac_row[1]
+            estado_previo = int(fac_row[2])
 
-            # 1. Revertir e ingresar el stock al catálogo
-            cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
-            detalles = cursor.fetchall()
-            for d in detalles:
-                pid = d['id_producto'] if isinstance(d, dict) else d[0]
-                cant = d['cantidad'] if isinstance(d, dict) else d[1]
-                cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
-                               (cant, current_user.usuario, pid))
+            # Solo reintegrar stock si no estaba ya anulada (3)
+            if estado_previo != 3:
+                cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
+                detalles = cursor.fetchall()
+                for d in detalles:
+                    pid = d[0]
+                    cant = d[1]
+                    cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
+                                   (cant, current_user.usuario, pid))
 
-            # 2. Borrado lógico: Cambia estado a 3 (Anulada), activo = FALSE y modified_by
             cursor.execute('''
                 UPDATE facturas 
                 SET activo = FALSE, id_estado = 3, modified_by = %s 
@@ -1762,7 +1809,7 @@ def eliminar_factura(numero):
 
             conn.commit()
             cursor.close()
-            flash(f'Factura {numero} anulada satisfactoriamente. Los artículos se reintegraron al stock disponible.', 'info')
+            flash(f'Factura {fac_num} anulada con éxito y stock devuelto al inventario.', 'info')
         except Exception as e:
             conn.rollback()
             flash(f'No se pudo anular la factura: {e}', 'danger')
@@ -1790,20 +1837,20 @@ def mis_facturas():
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
                 WHERE c.usuario_id = %s AND f.activo = TRUE
-                ORDER BY f.fecha DESC, f.id DESC;
+                ORDER BY f.id DESC;
             ''', (int(current_user.id),))
             filas = cursor.fetchall()
             cursor.close()
 
             for fila in filas:
                 facturas_usuario.append({
-                    'id': fila['id'] if isinstance(fila, dict) else fila[0],
-                    'numero': fila['numero'] if isinstance(fila, dict) else fila[1],
-                    'fecha': fila['fecha'] if isinstance(fila, dict) else fila[2],
-                    'monto': float(fila['monto'] if isinstance(fila, dict) else fila[3]),
-                    'id_estado': fila['id_estado'] if isinstance(fila, dict) else fila[4],
-                    'estado': fila['estado'] if isinstance(fila, dict) else fila[5],
-                    'metodo_pago': fila['metodo_pago'] if isinstance(fila, dict) else fila[6]
+                    'id': extraer_columna(fila, 'id', 0),
+                    'numero': extraer_columna(fila, 'numero', 1),
+                    'fecha': extraer_columna(fila, 'fecha', 2),
+                    'monto': float(extraer_columna(fila, 'monto', 3, 0.0)),
+                    'id_estado': extraer_columna(fila, 'id_estado', 4),
+                    'estado': extraer_columna(fila, 'estado', 5),
+                    'metodo_pago': extraer_columna(fila, 'metodo_pago', 6)
                 })
 
         except Exception as e:
@@ -1815,8 +1862,7 @@ def mis_facturas():
 
     return render_template('mis_facturas.html', facturas=facturas_usuario, sistema=SISTEMA_INFO)
 
-
-# 6. VER COMPROBANTE / IMPRIMIR FACTURA
+# 6. VER COMPROBANTE / IMPRIMIR FACTURA (SOLO FACTURAS PAGADAS)
 @app.route('/facturacion/descargar/<int:id_factura>')
 @login_required
 def descargar_factura(id_factura):
@@ -1825,13 +1871,15 @@ def descargar_factura(id_factura):
         flash("Error de conexión a la base de datos.", "danger")
         return redirect(url_for('dashboard'))
 
+    cursor = None
     try:
         cursor = conn.cursor()
 
+        # Validación con respecto al rol y obtención del estado real de la factura
         if current_user.rol == 'usuario':
             cursor.execute('''
                 SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado, 
-                       COALESCE(e.nombre, 'Pagada') AS estado,
+                       e.nombre AS estado,
                        COALESCE(c.nombre, 'Consumidor Final') AS cliente, 
                        c.email, c.ruc, c.telefono,
                        COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
@@ -1839,12 +1887,12 @@ def descargar_factura(id_factura):
                 LEFT JOIN clientes c ON f.id_cliente = c.id
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-                WHERE f.id = %s AND c.usuario_id = %s;
+                WHERE f.id = %s AND c.usuario_id = %s AND f.activo = TRUE;
             ''', (id_factura, int(current_user.id)))
         else:
             cursor.execute('''
                 SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado, 
-                       COALESCE(e.nombre, 'Pagada') AS estado,
+                       e.nombre AS estado,
                        COALESCE(c.nombre, 'Consumidor Final') AS cliente, 
                        c.email, c.ruc, c.telefono,
                        COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
@@ -1852,27 +1900,40 @@ def descargar_factura(id_factura):
                 LEFT JOIN clientes c ON f.id_cliente = c.id
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-                WHERE f.id = %s;
+                WHERE f.id = %s AND f.activo = TRUE;
             ''', (id_factura,))
 
         fila_fac = cursor.fetchone()
 
         if not fila_fac:
             flash("Comprobante no encontrado o acceso denegado.", "danger")
-            cursor.close()
+            return redirect(url_for('mis_facturas' if current_user.rol == 'usuario' else 'facturacion'))
+
+        id_estado = int(extraer_columna(fila_fac, 'id_estado', 4, 0))
+        nombre_estado = str(extraer_columna(fila_fac, 'estado', 5, '')).strip()
+        num_factura = extraer_columna(fila_fac, 'numero', 1)
+
+        # Regla estricta de producción: Solo facturas PAGADAS (id_estado = 1)
+        if id_estado != 1 or nombre_estado.lower() != 'pagada':
+            estado_aviso = nombre_estado if nombre_estado else "Pendiente de Pago"
+            flash(
+                f"Bloqueo comercial: La factura {num_factura} se encuentra en estado '{estado_aviso}'. "
+                f"Por control contable, únicamente se emiten comprobantes oficiales de pagos liquidados.", 
+                "warning"
+            )
             return redirect(url_for('mis_facturas' if current_user.rol == 'usuario' else 'facturacion'))
 
         factura_dict = {
-            'id': fila_fac['id'] if isinstance(fila_fac, dict) else fila_fac[0],
-            'numero': fila_fac['numero'] if isinstance(fila_fac, dict) else fila_fac[1],
-            'fecha': fila_fac['fecha'] if isinstance(fila_fac, dict) else fila_fac[2],
-            'monto': float(fila_fac['monto'] if isinstance(fila_fac, dict) else fila_fac[3]),
-            'estado': fila_fac['estado'] if isinstance(fila_fac, dict) else fila_fac[5],
-            'cliente': fila_fac['cliente'] if isinstance(fila_fac, dict) else fila_fac[6],
-            'email': fila_fac['email'] if isinstance(fila_fac, dict) else fila_fac[7],
-            'ruc': fila_fac['ruc'] if isinstance(fila_fac, dict) else fila_fac[8],
-            'telefono': fila_fac['telefono'] if isinstance(fila_fac, dict) else fila_fac[9],
-            'metodo_pago': fila_fac['metodo_pago'] if isinstance(fila_fac, dict) else fila_fac[10]
+            'id': extraer_columna(fila_fac, 'id', 0),
+            'numero': num_factura,
+            'fecha': extraer_columna(fila_fac, 'fecha', 2),
+            'monto': float(extraer_columna(fila_fac, 'monto', 3, 0.0)),
+            'estado': 'Pagada',
+            'cliente': extraer_columna(fila_fac, 'cliente', 6),
+            'email': extraer_columna(fila_fac, 'email', 7),
+            'ruc': extraer_columna(fila_fac, 'ruc', 8),
+            'telefono': extraer_columna(fila_fac, 'telefono', 9),
+            'metodo_pago': extraer_columna(fila_fac, 'metodo_pago', 10)
         }
 
         cursor.execute('''
@@ -1886,14 +1947,13 @@ def descargar_factura(id_factura):
         ''', (factura_dict['id'],))
         
         filas_detalles = cursor.fetchall()
-        cursor.close()
 
         detalles_lista = [
             {
-                'nombre': d['nombre'] if isinstance(d, dict) else d[0],
-                'cantidad': int(d['cantidad'] if isinstance(d, dict) else d[1]),
-                'precio': float(d['precio_unitario'] if isinstance(d, dict) else d[2]),
-                'subtotal': float(d['subtotal'] if isinstance(d, dict) else d[3])
+                'nombre': extraer_columna(d, 'nombre', 0),
+                'cantidad': int(extraer_columna(d, 'cantidad', 1, 0)),
+                'precio': float(extraer_columna(d, 'precio_unitario', 2, 0.0)),
+                'subtotal': float(extraer_columna(d, 'subtotal', 3, 0.0))
             }
             for d in filas_detalles
         ]
@@ -1908,6 +1968,8 @@ def descargar_factura(id_factura):
         flash(f"Error al generar comprobante: {e}", "danger")
         return redirect(url_for('dashboard'))
     finally:
+        if cursor:
+            cursor.close()
         conn.close()
 
 
@@ -1940,15 +2002,16 @@ def cambiar_estado_factura(id_factura):
             cursor.close()
             return redirect(url_for('facturacion'))
 
-        num_factura = factura['numero'] if isinstance(factura, dict) else factura[0]
+        num_factura = extraer_columna(factura, 'numero', 0)
+        estado_anterior_id = int(extraer_columna(factura, 'id_estado', 1, 0))
 
-        # Si se anula (id_estado = 3), se devuelve el inventario
-        if nuevo_estado_id == 3:
+        # Reintegrar inventario únicamente si cambia a Anulada (3) y no estaba anulada previamente
+        if nuevo_estado_id == 3 and estado_anterior_id != 3:
             cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (id_factura,))
             detalles = cursor.fetchall()
             for d in detalles:
-                pid = d['id_producto'] if isinstance(d, dict) else d[0]
-                cant = d['cantidad'] if isinstance(d, dict) else d[1]
+                pid = extraer_columna(d, 'id_producto', 0)
+                cant = extraer_columna(d, 'cantidad', 1)
                 cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
                                (cant, current_user.usuario, pid))
 
@@ -2005,9 +2068,9 @@ def agregar_al_carrito(id_producto):
             flash('Producto no disponible o dado de baja.', 'warning')
             return redirect(url_for('productos'))
 
-        nombre_prod = prod['nombre'] if isinstance(prod, dict) else prod[1]
-        precio_prod = float(prod['precio'] if isinstance(prod, dict) else prod[2])
-        stock_prod = int(prod['stock'] if isinstance(prod, dict) else prod[3])
+        nombre_prod = extraer_columna(prod, 'nombre', 1)
+        precio_prod = float(extraer_columna(prod, 'precio', 2, 0.0))
+        stock_prod = int(extraer_columna(prod, 'stock', 3, 0))
 
         if 'carrito' not in session:
             session['carrito'] = {}
@@ -2066,7 +2129,7 @@ def actualizar_carrito(id_producto):
         prod = cursor.fetchone()
         cursor.close()
 
-        stock_disponible = int(prod['stock'] if isinstance(prod, dict) else prod[0]) if prod else 0
+        stock_disponible = int(extraer_columna(prod, 'stock', 0, 0))
 
         if accion == 'sumar':
             nueva_cant = cant_actual + 1
@@ -2170,7 +2233,6 @@ def finalizar_compra():
     except ValueError:
         id_metodo_pago = 1
 
-    # Regla: Las facturas emitidas por el portal comercial se consolidan como Pagadas (id_estado = 1)
     id_estado_factura = 1 
 
     conn = obtener_conexion()
@@ -2189,7 +2251,7 @@ def finalizar_compra():
             cursor.close()
             return redirect(url_for('productos'))
 
-        id_cliente = cliente['id'] if isinstance(cliente, dict) else cliente[0]
+        id_cliente = extraer_columna(cliente, 'id', 0)
 
         # 2. Validar stock en tiempo real
         monto_total = 0.0
@@ -2208,9 +2270,9 @@ def finalizar_compra():
                 cursor.close()
                 return redirect(url_for('ver_carrito'))
 
-            stock_disponible = int(prod_db['stock'] if isinstance(prod_db, dict) else prod_db[2])
-            precio_real = float(prod_db['precio'] if isinstance(prod_db, dict) else prod_db[1])
-            nombre_real = prod_db['nombre'] if isinstance(prod_db, dict) else prod_db[0]
+            stock_disponible = int(extraer_columna(prod_db, 'stock', 2, 0))
+            precio_real = float(extraer_columna(prod_db, 'precio', 1, 0.0))
+            nombre_real = extraer_columna(prod_db, 'nombre', 0, '')
 
             if cant_solicitada > stock_disponible:
                 flash(f'Stock insuficiente para "{nombre_real}". Disponible: {stock_disponible}.', 'warning')
@@ -2222,30 +2284,22 @@ def finalizar_compra():
             monto_total += subtotal_item
             items_a_procesar.append((id_prod, cant_solicitada, precio_real, subtotal_item))
 
-        # 3. Secuencial de Factura
+        # 3. Secuencial de Factura seguro
         anio_actual = datetime.now().year
         prefijo = f"FAC-{anio_actual}-"
 
-        cursor.execute('''
-            SELECT numero 
-            FROM facturas 
-            WHERE numero LIKE %s 
-            ORDER BY CAST(SPLIT_PART(numero, '-', 3) AS INTEGER) DESC 
-            LIMIT 1;
-        ''', (f"{prefijo}%",))
+        cursor.execute('SELECT numero FROM facturas WHERE numero LIKE %s ORDER BY id DESC LIMIT 50;', (f"{prefijo}%",))
+        filas_numeros = cursor.fetchall()
+        max_secuencial = 0
+        for f_num in filas_numeros:
+            cadena_num = extraer_columna(f_num, 'numero', 0, '')
+            partes = cadena_num.split('-')
+            if len(partes) >= 3 and partes[-1].isdigit():
+                val = int(partes[-1])
+                if val > max_secuencial:
+                    max_secuencial = val
 
-        res_ultima = cursor.fetchone()
-        if res_ultima:
-            num_str = res_ultima.get('numero') if isinstance(res_ultima, dict) else res_ultima[0]
-            try:
-                ultimo_consecutivo = int(num_str.split('-')[-1])
-                siguiente_id = ultimo_consecutivo + 1
-            except (ValueError, IndexError):
-                siguiente_id = 1
-        else:
-            siguiente_id = 1
-
-        numero_factura = f"{prefijo}{siguiente_id:03d}"
+        numero_factura = f"{prefijo}{max_secuencial + 1:03d}"
 
         # 4. Insertar Factura Pagada
         cursor.execute('''
@@ -2255,17 +2309,14 @@ def finalizar_compra():
         ''', (numero_factura, monto_total, id_cliente, id_estado_factura, id_metodo_pago, current_user.usuario))
 
         res_fac = cursor.fetchone()
-        id_factura = res_fac['id'] if isinstance(res_fac, dict) else res_fac[0]
+        id_factura = extraer_columna(res_fac, 'id', 0)
 
-        # 5. Insertar Detalle y Descontar Stock con Auditoría
+        # 5. Insertar Detalle (el Trigger en PostgreSQL descuenta el inventario de manera automática)
         for id_prod, cant, precio, subtotal in items_a_procesar:
             cursor.execute('''
                 INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
                 VALUES (%s, %s, %s, %s, %s);
             ''', (id_factura, id_prod, cant, precio, subtotal))
-
-            cursor.execute('UPDATE productos SET stock = stock - %s, modified_by = %s WHERE id = %s;', 
-                           (cant, current_user.usuario, id_prod))
 
         conn.commit()
         cursor.close()

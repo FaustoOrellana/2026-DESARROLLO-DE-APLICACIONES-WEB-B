@@ -34,49 +34,55 @@
                 </thead>
                 <tbody>
                     {% for f in facturas %}
+                    {% set fac_id = f.id if f is mapping else f[0] %}
+                    {% set fac_numero = f.numero if f is mapping else f[1] %}
+                    {% set fac_fecha = f.fecha if f is mapping else f[2] %}
+                    {% set fac_monto = f.monto if f is mapping else f[3] %}
+                    {% set fac_estado = f.estado if f is mapping else f[5] %}
+                    {% set fac_metodo = f.metodo_pago if f is mapping else f[6] %}
                     <tr>
                         <!-- Identificador Secuencial -->
                         <td class="ps-4 fw-bold font-monospace text-primary">
-                            {{ f.numero }}
+                            {{ fac_numero }}
                         </td>
 
                         <!-- Fecha de Emisión -->
                         <td class="text-muted small">
-                            {{ f.fecha.strftime('%d/%m/%Y') if (f.fecha and f.fecha.strftime is defined) else (f.fecha or 'N/A') }}
+                            {{ fac_fecha.strftime('%d/%m/%Y') if (fac_fecha and fac_fecha.strftime is defined) else (fac_fecha or 'N/A') }}
                         </td>
 
                         <!-- Método de Pago -->
                         <td>
                             <span class="badge bg-light text-dark border px-2 py-1">
-                                <i class="bi bi-wallet2 text-primary me-1"></i> {{ f.metodo_pago or 'Efectivo' }}
+                                <i class="bi bi-wallet2 text-primary me-1"></i> {{ fac_metodo or 'Efectivo' }}
                             </span>
                         </td>
 
                         <!-- Monto -->
                         <td class="fw-bold text-dark">
-                            ${{ "%.2f"|format(f.monto) }}
+                            ${{ "%.2f"|format(fac_monto|float) }}
                         </td>
 
                         <!-- Estado de Cobro -->
                         <td>
-                            {% if f.estado == 'Pagada' %}
+                            {% if fac_estado == 'Pagada' %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
                                     <i class="bi bi-check-circle-fill me-1"></i> Pagada
                                 </span>
-                            {% elif f.estado == 'Anulada' %}
+                            {% elif fac_estado == 'Anulada' %}
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1">
                                     <i class="bi bi-x-circle-fill me-1"></i> Anulada
                                 </span>
                             {% else %}
                                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1">
-                                    {{ f.estado or 'Completada' }}
+                                    {{ fac_estado or 'Completada' }}
                                 </span>
                             {% endif %}
                         </td>
 
                         <!-- Acción: Ver Comprobante -->
                         <td class="text-end pe-4">
-                            <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-3 px-3 shadow-sm" title="Ver / Imprimir Comprobante">
+                            <a href="{{ url_for('descargar_factura', id_factura=fac_id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-3 px-3 shadow-sm" title="Ver / Imprimir Comprobante">
                                 <i class="bi bi-printer-fill me-1"></i> Comprobante
                             </a>
                         </td>

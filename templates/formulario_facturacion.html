@@ -52,21 +52,34 @@
                         </div>
 
                         <div class="col-12 col-md-4">
-                            {{ form.estado.label(class="form-label text-dark fw-semibold") }}
-                            {{ form.estado(class="form-select bg-light fw-medium text-success border-success-subtle" + (" is-invalid" if form.estado.errors else "")) }}
-                            {% for e in form.estado.errors %}
-                                <div class="invalid-feedback d-block">{{ e }}</div>
-                            {% endfor %}
+                            {% if form.estado %}
+                                {{ form.estado.label(class="form-label text-dark fw-semibold") }}
+                                {{ form.estado(class="form-select bg-light fw-medium text-success border-success-subtle" + (" is-invalid" if form.estado.errors else "")) }}
+                                {% for e in form.estado.errors %}
+                                    <div class="invalid-feedback d-block">{{ e }}</div>
+                                {% endfor %}
+                            {% else %}
+                                <label class="form-label text-dark fw-semibold">Estado</label>
+                                <input type="text" class="form-control bg-light text-success fw-bold" value="Pagada" readonly>
+                            {% endif %}
                         </div>
 
                         <div class="col-12 col-md-4">
                             <label for="id_metodo_pago" class="form-label text-dark fw-semibold">Método de Pago</label>
                             <select name="id_metodo_pago" id="id_metodo_pago" class="form-select">
-                                {% for m in metodos_lista %}
-                                    <option value="{{ m['id'] if m is mapping else m[0] }}">
-                                        {{ m['nombre'] if m is mapping else m[1] }}
-                                    </option>
-                                {% endfor %}
+                                {% if metodos_lista %}
+                                    {% for m in metodos_lista %}
+                                        {% set m_id = m['id'] if m is mapping else m[0] %}
+                                        {% set m_nom = m['nombre'] if m is mapping else m[1] %}
+                                        <option value="{{ m_id }}" {% if factura and (factura.id_metodo_pago == m_id or (factura is not mapping and factura[6] == m_id)) %}selected{% endif %}>
+                                            {{ m_nom }}
+                                        </option>
+                                    {% endfor %}
+                                {% else %}
+                                    <option value="1">Efectivo</option>
+                                    <option value="2">Transferencia Bancaria</option>
+                                    <option value="3">Tarjeta de Crédito</option>
+                                {% endif %}
                             </select>
                         </div>
                     </div>
@@ -96,7 +109,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="cuerpoTablaProductos">
-                                    <!-- Filas dinámicas generadas con JS -->
+                                    <!-- Filas generadas dinámicamente -->
                                 </tbody>
                             </table>
                         </div>
@@ -131,7 +144,7 @@
 
 <!-- Bloques de datos JSON seguros -->
 <script id="data-catalogo-json" type="application/json">
-{{ productos_lista | tojson }}
+{{ (productos_lista or []) | tojson }}
 </script>
 
 <script id="data-detalles-json" type="application/json">
@@ -139,8 +152,8 @@
 </script>
 
 <script>
-const catalogoProductos = JSON.parse(document.getElementById('data-catalogo-json').textContent);
-const itemsPrecargados = JSON.parse(document.getElementById('data-detalles-json').textContent);
+const catalogoProductos = JSON.parse(document.getElementById('data-catalogo-json').textContent || '[]');
+const itemsPrecargados = JSON.parse(document.getElementById('data-detalles-json').textContent || '[]');
 
 function crearFila(idSel = "", cant = 1, prec = null, stockMax = null) {
     const tbody = document.getElementById('cuerpoTablaProductos');
@@ -154,7 +167,7 @@ function crearFila(idSel = "", cant = 1, prec = null, stockMax = null) {
         let selected = '';
         let stockDisponible = p.stock;
 
-        if (idSel !== "" && p.id == idSel) {
+        if (idSel !== "" && String(p.id) === String(idSel)) {
             selected = 'selected';
             if (stockMax !== null) stockDisponible = stockMax;
             if (precioAsignado === null) precioAsignado = p.precio;
@@ -180,7 +193,7 @@ function crearFila(idSel = "", cant = 1, prec = null, stockMax = null) {
             <input type="number" step="0.01" min="0" name="precio[]" class="form-control form-control-sm text-end rounded-2 inp-precio" value="${parseFloat(precioAsignado).toFixed(2)}" oninput="actualizarSuma()">
         </td>
         <td>
-            <input type="number" name="cantidad[]" class="form-control form-control-sm text-center rounded-2 inp-cantidad" min="1" max="${stockAsignado || 1}" value="${cant}" required oninput="limitarStock(this)">
+            <input type="number" name="cantidad[]" class="form-control form-control-sm text-center rounded-2 inp-cantidad" min="1" max="${stockAsignado > 0 ? stockAsignado : 1}" value="${cant}" required oninput="limitarStock(this)">
         </td>
         <td>
             <input type="text" class="form-control form-control-sm text-end rounded-2 inp-subtotal fw-semibold bg-light" value="${(cant * precioAsignado).toFixed(2)}" readonly>
@@ -266,7 +279,6 @@ function actualizarSuma() {
     }
 }
 
-// Validación antes de enviar el formulario
 document.getElementById('formFactura').addEventListener('submit', function(e) {
     const filas = document.querySelectorAll('#cuerpoTablaProductos tr');
     let tieneProductosValidos = false;
@@ -287,7 +299,7 @@ document.getElementById('formFactura').addEventListener('submit', function(e) {
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-    if (itemsPrecargados.length > 0) {
+    if (Array.isArray(itemsPrecargados) && itemsPrecargados.length > 0) {
         itemsPrecargados.forEach(i => {
             crearFila(i.id_producto, i.cantidad, i.precio, i.stock);
         });
