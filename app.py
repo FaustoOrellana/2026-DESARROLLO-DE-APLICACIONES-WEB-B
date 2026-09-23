@@ -426,42 +426,45 @@ def obtener_metricas_globales():
         # 1. Contadores generales de entidades activas
         cursor.execute("SELECT COUNT(*) FROM productos WHERE activo = TRUE;")
         res = cursor.fetchone()
-        metricas['total_productos'] = int(res[0] if not isinstance(res, dict) else res['count'])
+        metricas['total_productos'] = int(res[0] if not isinstance(res, (dict, object)) or hasattr(res, 'keys') and not res else (res['count'] if isinstance(res, dict) else res[0]))
 
         cursor.execute("SELECT COUNT(*) FROM clientes WHERE activo = TRUE;")
         res = cursor.fetchone()
-        metricas['total_clientes'] = int(res[0] if not isinstance(res, dict) else res['count'])
+        metricas['total_clientes'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
 
         cursor.execute("SELECT COUNT(*) FROM proveedores WHERE activo = TRUE;")
         res = cursor.fetchone()
-        metricas['total_proveedores'] = int(res[0] if not isinstance(res, dict) else res['count'])
+        metricas['total_proveedores'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
 
         cursor.execute("SELECT COUNT(*) FROM facturas WHERE activo = TRUE;")
         res = cursor.fetchone()
-        metricas['total_facturas'] = int(res[0] if not isinstance(res, dict) else res['count'])
+        metricas['total_facturas'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
 
         # 2. Total recaudado real (Facturas Pagadas y Activas, id_estado = 1)
         cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM facturas WHERE activo = TRUE AND id_estado = 1;")
         res = cursor.fetchone()
-        metricas['total_ingresos'] = float(res[0] if not isinstance(res, dict) else res['coalesce'])
+        val_ingresos = res[0] if not isinstance(res, dict) else (res.get('coalesce') or res.get('sum') or 0)
+        metricas['total_ingresos'] = float(val_ingresos)
 
-        # Total pendiente (por regla de negocio debe ser 0.00 en emisión pagada)
+        # Total pendiente
         metricas['total_pendiente'] = 0.0
 
         # 3. Alerta de stock crítico en catálogo activo (stock <= 5 unidades)
         cursor.execute("SELECT COUNT(*) FROM productos WHERE activo = TRUE AND stock <= 5;")
         res = cursor.fetchone()
-        metricas['productos_bajo_stock'] = int(res[0] if not isinstance(res, dict) else res['count'])
+        metricas['productos_bajo_stock'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
 
-        # 4. Últimas 5 facturas pagadas emitidas con información del cliente y método
+        # 4. Últimas 5 facturas emitidas ordenadas por ID de manera segura
         cursor.execute('''
-            SELECT f.id, f.numero, f.fecha, f.monto,
+            SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado,
                    COALESCE(c.nombre, 'Consumidor Final') AS cliente,
-                   COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
+                   COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
+                   COALESCE(e.nombre, 'Pagada') AS estado
             FROM facturas f
             LEFT JOIN clientes c ON f.id_cliente = c.id
             LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-            WHERE f.activo = TRUE AND f.id_estado = 1
+            LEFT JOIN estados_factura e ON f.id_estado = e.id
+            WHERE f.activo = TRUE
             ORDER BY f.id DESC
             LIMIT 5;
         ''')
@@ -470,18 +473,33 @@ def obtener_metricas_globales():
 
         lista_ventas = []
         for f in filas:
-            item = {
-                'id': f['id'] if isinstance(f, dict) else f[0],
-                'numero': f['numero'] if isinstance(f, dict) else f[1],
-                'fecha': f['fecha'] if isinstance(f, dict) else f[2],
-                'monto': float(f['monto'] if isinstance(f, dict) else f[3]),
-                'cliente': f['cliente'] if isinstance(f, dict) else f[4],
-                'metodo_pago': f['metodo_pago'] if isinstance(f, dict) else f[5]
-            }
+            # Extracción segura compatible con tuplas posicionales y diccionarios
+            if isinstance(f, dict):
+                item = {
+                    'id': f.get('id'),
+                    'numero': f.get('numero'),
+                    'fecha': f.get('fecha'),
+                    'monto': float(f.get('monto') or 0.0),
+                    'id_estado': int(f.get('id_estado') or 1),
+                    'cliente': f.get('cliente', 'Consumidor Final'),
+                    'metodo_pago': f.get('metodo_pago', 'Efectivo'),
+                    'estado': f.get('estado', 'Pagada')
+                }
+            else:
+                item = {
+                    'id': f[0],
+                    'numero': f[1],
+                    'fecha': f[2],
+                    'monto': float(f[3] or 0.0),
+                    'id_estado': int(f[4] if len(f) > 4 and f[4] is not None else 1),
+                    'cliente': f[5] if len(f) > 5 else 'Consumidor Final',
+                    'metodo_pago': f[6] if len(f) > 6 else 'Efectivo',
+                    'estado': f[7] if len(f) > 7 else 'Pagada'
+                }
             lista_ventas.append(item)
 
         metricas['facturas_recientes'] = lista_ventas
-        metricas['pendientes_recientes'] = lista_ventas  # Por compatibilidad si alguna vista lo invoca
+        metricas['pendientes_recientes'] = lista_ventas  # Por compatibilidad
 
     except Exception as e:
         print(f"Error al obtener métricas globales: {e}")
@@ -489,6 +507,7 @@ def obtener_metricas_globales():
         conn.close()
 
     return metricas
+
 
 # CONTROLADORES DE ENTRADA Y PANEL
 # 1. PORTADA PÚBLICA (visible para cualquiera)
@@ -516,19 +535,68 @@ def dashboard():
 
     metricas = obtener_metricas_globales()
 
+    # Extracción y conversión segura de métricas escalares para evitar excepciones en Jinja2
+    def convertir_valor(val, tipo=int, defecto=0):
+        try:
+            if val is None:
+                return defecto
+            if isinstance(val, (list, tuple)):
+                val = val[0]
+            if isinstance(val, dict):
+                val = list(val.values())[0] if val else defecto
+            return tipo(val)
+        except Exception:
+            return defecto
+
+    tot_prod = convertir_valor(metricas.get('total_productos', 0), int, 0)
+    tot_cli = convertir_valor(metricas.get('total_clientes', 0), int, 0)
+    tot_prov = convertir_valor(metricas.get('total_proveedores', 0), int, 0)
+    tot_fac = convertir_valor(metricas.get('total_facturas', 0), int, 0)
+    tot_ing = convertir_valor(metricas.get('total_ingresos', 0.0), float, 0.0)
+    tot_pend = convertir_valor(metricas.get('total_pendiente', 0.0), float, 0.0)
+    prod_stock = convertir_valor(metricas.get('productos_bajo_stock', 0), int, 0)
+
+    # Normalización estricta de facturas recientes a diccionarios puros
+    facturas_limpias = []
+    raw_facturas = metricas.get('facturas_recientes', [])
+    if isinstance(raw_facturas, (list, tuple)):
+        for f in raw_facturas:
+            if isinstance(f, dict):
+                facturas_limpias.append({
+                    'id': convertir_valor(f.get('id'), int, 0),
+                    'numero': str(f.get('numero', 'N/A')),
+                    'fecha': str(f.get('fecha', '')),
+                    'monto': convertir_valor(f.get('monto'), float, 0.0),
+                    'id_estado': convertir_valor(f.get('id_estado'), int, 1),
+                    'cliente': str(f.get('cliente', 'Consumidor Final')),
+                    'metodo_pago': str(f.get('metodo_pago', 'Efectivo')),
+                    'estado': str(f.get('estado', 'Pagada'))
+                })
+            elif isinstance(f, (list, tuple)):
+                facturas_limpias.append({
+                    'id': convertir_valor(f[0] if len(f) > 0 else 0, int, 0),
+                    'numero': str(f[1] if len(f) > 1 else 'N/A'),
+                    'fecha': str(f[2] if len(f) > 2 else ''),
+                    'monto': convertir_valor(f[3] if len(f) > 3 else 0.0, float, 0.0),
+                    'id_estado': convertir_valor(f[4] if len(f) > 4 else 1, int, 1),
+                    'cliente': str(f[5] if len(f) > 5 else 'Consumidor Final'),
+                    'metodo_pago': str(f[6] if len(f) > 6 else 'Efectivo'),
+                    'estado': str(f[7] if len(f) > 7 else 'Pagada')
+                })
+
     return render_template(
         'dashboard.html',
         sistema=SISTEMA_INFO,
         m=metricas,
-        total_productos=metricas['total_productos'],
-        total_clientes=metricas['total_clientes'],
-        total_proveedores=metricas['total_proveedores'],
-        total_facturas=metricas['total_facturas'],
-        total_ingresos=metricas['total_ingresos'],
-        total_pendiente=metricas['total_pendiente'],
-        productos_bajo_stock=metricas['productos_bajo_stock'],
-        facturas_recientes=metricas['facturas_recientes'],
-        pendientes_recientes=metricas['pendientes_recientes']
+        total_productos=tot_prod,
+        total_clientes=tot_cli,
+        total_proveedores=tot_prov,
+        total_facturas=tot_fac,
+        total_ingresos=tot_ing,
+        total_pendiente=tot_pend,
+        productos_bajo_stock=prod_stock,
+        facturas_recientes=facturas_limpias,
+        pendientes_recientes=facturas_limpias
     )
 
 # MÓDULO 1: PRODUCTOS
@@ -1819,7 +1887,7 @@ def eliminar_factura(numero):
     return redirect(url_for('facturacion'))
 
 
-# 5. HISTORIAL DE COMPRAS DEL CLIENTE
+# 5. HISTORIAL DE COMPRAS DEL CLIENTE (CON DETALLE CONSOLIDADO DE PRODUCTOS)
 @app.route('/mis-facturas')
 @login_required
 def mis_facturas():
@@ -1829,16 +1897,26 @@ def mis_facturas():
         try:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado, 
-                       COALESCE(e.nombre, 'Pagada') AS estado,
-                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
+                SELECT f.id, 
+                       f.numero, 
+                       f.fecha, 
+                       f.monto, 
+                       f.id_estado, 
+                       COALESCE(e.nombre, 'Pendiente') AS estado,
+                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
+                       COALESCE(SUM(df.cantidad), 0) AS total_articulos,
+                       COALESCE(STRING_AGG(CONCAT(df.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
                 FROM facturas f
                 INNER JOIN clientes c ON f.id_cliente = c.id
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
+                LEFT JOIN detalle_facturas df ON df.id_factura = f.id
+                LEFT JOIN productos p ON df.id_producto = p.id
                 WHERE c.usuario_id = %s AND f.activo = TRUE
+                GROUP BY f.id, f.numero, f.fecha, f.monto, f.id_estado, e.nombre, mp.nombre
                 ORDER BY f.id DESC;
             ''', (int(current_user.id),))
+            
             filas = cursor.fetchall()
             cursor.close()
 
@@ -1850,7 +1928,9 @@ def mis_facturas():
                     'monto': float(extraer_columna(fila, 'monto', 3, 0.0)),
                     'id_estado': extraer_columna(fila, 'id_estado', 4),
                     'estado': extraer_columna(fila, 'estado', 5),
-                    'metodo_pago': extraer_columna(fila, 'metodo_pago', 6)
+                    'metodo_pago': extraer_columna(fila, 'metodo_pago', 6),
+                    'total_articulos': int(extraer_columna(fila, 'total_articulos', 7, 0)),
+                    'resumen_items': str(extraer_columna(fila, 'resumen_items', 8, 'Sin ítems'))
                 })
 
         except Exception as e:
@@ -1981,17 +2061,18 @@ def cambiar_estado_factura(id_factura):
         flash('No tiene permisos para modificar el estado de las facturas.', 'danger')
         return redirect(url_for('dashboard'))
 
-    nuevo_estado = request.form.get('id_estado')
+    # Corregido para leer 'nuevo_estado' enviado por los selectores del dashboard y facturación
+    nuevo_estado = request.form.get('nuevo_estado')
     try:
         nuevo_estado_id = int(nuevo_estado)
     except (ValueError, TypeError):
         flash('Estado de factura inválido.', 'warning')
-        return redirect(url_for('facturacion'))
+        return redirect(request.referrer or url_for('dashboard'))
 
     conn = obtener_conexion()
     if not conn:
         flash('Error de conexión a la base de datos.', 'danger')
-        return redirect(url_for('facturacion'))
+        return redirect(request.referrer or url_for('dashboard'))
 
     try:
         cursor = conn.cursor()
@@ -2000,7 +2081,7 @@ def cambiar_estado_factura(id_factura):
         if not factura:
             flash('Factura no encontrada o inactiva.', 'warning')
             cursor.close()
-            return redirect(url_for('facturacion'))
+            return redirect(request.referrer or url_for('dashboard'))
 
         num_factura = extraer_columna(factura, 'numero', 0)
         estado_anterior_id = int(extraer_columna(factura, 'id_estado', 1, 0))
@@ -2037,7 +2118,8 @@ def cambiar_estado_factura(id_factura):
     finally:
         conn.close()
 
-    return redirect(url_for('facturacion'))
+    # Redirige de vuelta a la página de origen (Dashboard o Facturación) de manera fluida
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # 7. GESTIÓN DEL CARRITO EN SESIÓN Y FACTURACIÓN DIRECTA PAGADA
@@ -2217,8 +2299,7 @@ def vaciar_carrito():
     flash('Se ha vaciado el carrito de compras.', 'info')
     return redirect(url_for('ver_carrito'))
 
-
-# 7.6 FINALIZAR COMPRA (EMISIÓN ESTRICTA: SOLO FACTURAS PAGADAS)
+# 7.6 FINALIZAR COMPRA (AUTORIZACIÓN AUTOMÁTICA PARA TARJETA, PENDIENTE PARA OTROS)
 @app.route('/carrito/finalizar-compra', methods=['POST'])
 @login_required
 def finalizar_compra():
@@ -2233,7 +2314,28 @@ def finalizar_compra():
     except ValueError:
         id_metodo_pago = 1
 
-    id_estado_factura = 1 
+    # REGLA DE PASARELA PROFESIONAL:
+    # - Si paga con Tarjeta (ID 3): Se aprueba de inmediato -> Pagada (id_estado = 1)
+    # - Si paga con Efectivo (ID 1) o Transferencia (ID 2): Requiere validación -> Pendiente (id_estado = 2)
+    if id_metodo_pago == 3:
+        tipo_tarjeta = request.form.get('tipo_tarjeta', 'debito')
+        num_tarjeta = request.form.get('num_tarjeta', '').strip()
+        titular = request.form.get('titular_tarjeta', '').strip()
+        exp = request.form.get('exp_tarjeta', '').strip()
+        cvv = request.form.get('cvv_tarjeta', '').strip()
+
+        if not num_tarjeta or len(num_tarjeta) < 12 or not titular or not exp or not cvv:
+            flash('Error de pasarela: Debe completar todos los datos de su tarjeta de forma válida.', 'danger')
+            return redirect(url_for('ver_carrito'))
+
+        if tipo_tarjeta == 'credito':
+            diferido_meses = request.form.get('diferido_meses', '3')
+
+        id_estado_factura = 1  # 1 = Pagada (Autorizada por pasarela de tarjeta)
+        mensaje_exito = '¡Pago con tarjeta autorizado con éxito! Se ha emitido su factura oficial.'
+    else:
+        id_estado_factura = 2  # 2 = Pendiente de validación manual
+        mensaje_exito = '¡Pedido registrado con éxito! Su orden se encuentra en estado Pendiente de validación.'
 
     conn = obtener_conexion()
     if not conn:
@@ -2301,7 +2403,7 @@ def finalizar_compra():
 
         numero_factura = f"{prefijo}{max_secuencial + 1:03d}"
 
-        # 4. Insertar Factura Pagada
+        # 4. Insertar Factura con estado dinámico (Pagada si es tarjeta, Pendiente si es transferencia/efectivo)
         cursor.execute('''
             INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago, created_by, activo)
             VALUES (%s, CURRENT_DATE, %s, %s, %s, %s, %s, TRUE)
@@ -2311,7 +2413,7 @@ def finalizar_compra():
         res_fac = cursor.fetchone()
         id_factura = extraer_columna(res_fac, 'id', 0)
 
-        # 5. Insertar Detalle (el Trigger en PostgreSQL descuenta el inventario de manera automática)
+        # 5. Insertar Detalle (el Trigger en PostgreSQL descuenta el inventario automáticamente)
         for id_prod, cant, precio, subtotal in items_a_procesar:
             cursor.execute('''
                 INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
@@ -2322,13 +2424,85 @@ def finalizar_compra():
         cursor.close()
 
         session.pop('carrito', None)
-        flash(f'¡Pago confirmado exitosamente! Se emitió la factura {numero_factura}.', 'success')
+        flash(mensaje_exito, 'success')
         return redirect(url_for('mis_facturas'))
 
     except Exception as e:
         conn.rollback()
-        flash(f'Error al procesar el pago y emitir la factura: {e}', 'danger')
+        flash(f'Error al procesar el pedido: {e}', 'danger')
         return redirect(url_for('ver_carrito'))
+    finally:
+        conn.close()
+
+# 7.7 AGREGAR MÚLTIPLES PRODUCTOS DESDE EL CATÁLOGO
+@app.route('/carrito/agregar-multiples', methods=['POST'])
+@login_required
+def agregar_multiples_carrito():
+    ids_seleccionados = request.form.getlist('productos_seleccionados')
+    
+    if not ids_seleccionados:
+        flash('No ha seleccionado ningún producto para agregar al carrito.', 'warning')
+        return redirect(url_for('productos'))
+
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión a la base de datos.', 'danger')
+        return redirect(url_for('productos'))
+
+    try:
+        cursor = conn.cursor()
+        if 'carrito' not in session:
+            session['carrito'] = {}
+        carrito = session['carrito']
+
+        agregados_count = 0
+
+        for id_str in ids_seleccionados:
+            try:
+                id_producto = int(id_str)
+                cant_solicitada = int(request.form.get(f'cantidad_{id_producto}', 1))
+                if cant_solicitada < 1:
+                    cant_solicitada = 1
+            except ValueError:
+                continue
+
+            cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE id = %s AND activo = TRUE;', (id_producto,))
+            prod = cursor.fetchone()
+
+            if prod:
+                nombre_prod = extraer_columna(prod, 'nombre', 1)
+                precio_prod = float(extraer_columna(prod, 'precio', 2, 0.0))
+                stock_prod = int(extraer_columna(prod, 'stock', 3, 0))
+
+                prod_id_str = str(id_producto)
+                cant_actual = carrito.get(prod_id_str, {}).get('cantidad', 0)
+                nueva_cant = cant_actual + cant_solicitada
+
+                if nueva_cant > stock_prod:
+                    flash(f'Stock insuficiente para "{nombre_prod}". Máximo disponible: {stock_prod}. Se omitió este ítem.', 'warning')
+                    continue
+
+                carrito[prod_id_str] = {
+                    'id': id_producto,
+                    'nombre': nombre_prod,
+                    'precio': precio_prod,
+                    'cantidad': nueva_cant,
+                    'subtotal': round(precio_prod * nueva_cant, 2)
+                }
+                agregados_count += 1
+
+        cursor.close()
+        session['carrito'] = carrito
+        session.modified = True
+
+        if agregados_count > 0:
+            flash(f'¡Se agregaron con éxito {agregados_count} producto(s) seleccionados al carrito!', 'success')
+        
+        return redirect(url_for('ver_carrito'))
+
+    except Exception as e:
+        flash(f'Error al procesar la selección múltiple: {e}', 'danger')
+        return redirect(url_for('productos'))
     finally:
         conn.close()
 

@@ -20,7 +20,7 @@
         </div>
     </div>
 
-    <!-- Barra de Búsqueda Corporativa -->
+    <!-- Barra de Búsqueda Corporativa (Formulario independiente) -->
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-3">
             <form id="formBusqueda" method="GET" action="{{ url_for('productos') }}" class="row g-2 align-items-center">
@@ -54,106 +54,129 @@
         </div>
     </div>
 
-    <!-- Tabla de Productos -->
-    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light text-nowrap">
-                    <tr>
-                        <th class="ps-4">ID</th>
-                        <th>Nombre del Producto</th>
-                        <th>Descripción</th>
-                        <th>Categoría</th>
-                        <th>Precio ({{ sistema.moneda }})</th>
-                        <th>Stock</th>
-                        <th>Estado</th>
-                        <th class="text-end pe-4">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for p in productos %}
-                    <tr>
-                        <td class="ps-4 fw-bold text-secondary">#{{ p.id }}</td>
-                        <td class="fw-semibold text-dark">{{ p.nombre }}</td>
-                        <td class="text-muted small text-truncate" style="max-width: 200px;" title="{{ p.descripcion or 'Sin descripción' }}">
-                            {{ p.descripcion if p.descripcion else '<span class="fst-italic text-black-50">Sin descripción</span>'|safe }}
-                        </td>
-                        <td>
-                            <span class="badge bg-info text-white rounded-2 px-2 py-1">{{ p.categoria }}</span>
-                        </td>
-                        <td class="fw-medium">${{ "%.2f"|format(p.precio) }}</td>
-                        <td>{{ p.stock }} unidades</td>
-                        <td>
-                            {% if p.stock > 0 %}
-                                <span class="badge bg-success rounded-pill px-2 py-1">Disponible</span>
-                            {% else %}
-                                <span class="badge bg-danger rounded-pill px-2 py-1">Agotado</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-end pe-4 text-nowrap">
-                            {% if current_user.rol == 'usuario' %}
-                                {% if p.stock > 0 %}
-                                    <form action="{{ url_for('agregar_al_carrito', id_producto=p.id) }}" method="POST" class="d-inline-flex align-items-center gap-1">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                        <input type="number" name="cantidad" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center" style="width: 65px;" title="Cantidad deseada">
-                                        <button type="submit" class="btn btn-success btn-sm rounded-3 shadow-sm" title="Agregar al carrito">
-                                            <i class="bi bi-cart-plus me-1"></i> Agregar
-                                        </button>
-                                    </form>
-                                {% else %}
-                                    <span class="badge bg-secondary">Sin Stock</span>
-                                {% endif %}
-                            {% else %}
-                                <div class="btn-group btn-group-sm" role="group">
-                                    <a href="{{ url_for('editar_producto', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
-                                        <i class="bi bi-pencil-square"></i> Editar
-                                    </a>
-                                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar">
-                                        <i class="bi bi-trash"></i> Eliminar
-                                    </button>
-                                </div>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
-                            <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
-                            No se encontraron productos activos con los criterios ingresados.
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <!-- Formulario Único para Selección Masiva y Tabla de Productos -->
+    <form action="{{ url_for('agregar_multiples_carrito') }}" method="POST" id="formSeleccionProductos">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
-        <!-- Paginación de Registros -->
-        {% if total_pages > 1 %}
-        <div class="card-footer bg-white border-0 py-3">
-            <nav aria-label="Navegación de páginas">
-                <ul class="pagination pagination-sm justify-content-center m-0 gap-1">
-                    <li class="page-item {{ 'disabled' if page <= 1 }}">
-                        <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page-1, q=q) }}">
-                            <i class="bi bi-chevron-left me-1"></i> Anterior
-                        </a>
-                    </li>
-                    
-                    {% for num in range(1, total_pages + 1) %}
-                    <li class="page-item {{ 'active' if num == page }}">
-                        <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=num, q=q) }}">{{ num }}</a>
-                    </li>
-                    {% endfor %}
-
-                    <li class="page-item {{ 'disabled' if page >= total_pages }}">
-                        <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page+1, q=q) }}">
-                            Siguiente <i class="bi bi-chevron-right ms-1"></i>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
+        {% if current_user.rol == 'usuario' and productos %}
+        <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded-4 shadow-sm">
+            <span class="text-muted small"><i class="bi bi-info-circle me-1"></i> Selecciona varios productos de distintas categorías y asígnale su cantidad para agregarlos todos juntos al carrito.</span>
+            <button type="submit" class="btn btn-success fw-bold px-4 py-2 rounded-3 shadow-sm text-nowrap" onclick="limpiarMemoriaSeleccion()">
+                <i class="bi bi-cart-plus-fill me-2"></i> Agregar Selección al Carrito
+            </button>
         </div>
         {% endif %}
-    </div>
+
+        <!-- Tabla de Productos -->
+        <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light text-nowrap">
+                        <tr>
+                            {% if current_user.rol == 'usuario' %}
+                            <th class="ps-4" style="width: 40px;"><input type="checkbox" id="seleccionarTodos" class="form-check-input" title="Seleccionar todos"></th>
+                            {% endif %}
+                            <th class="{% if current_user.rol != 'usuario' %}ps-4{% endif %}">ID</th>
+                            <th>Nombre del Producto</th>
+                            <th>Descripción</th>
+                            <th>Categoría</th>
+                            <th>Precio ({{ sistema.moneda }})</th>
+                            <th>Stock</th>
+                            <th>Estado</th>
+                            <th class="text-end pe-4">Acciones / Cantidad</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in productos %}
+                        <tr>
+                            {% if current_user.rol == 'usuario' %}
+                            <td class="ps-4">
+                                {% if p.stock > 0 %}
+                                    <input type="checkbox" name="productos_seleccionados" value="{{ p.id }}" class="form-check-input check-producto" data-id="{{ p.id }}">
+                                {% endif %}
+                            </td>
+                            {% endif %}
+                            <td class="{% if current_user.rol != 'usuario' %}ps-4{% endif %} fw-bold text-secondary">#{{ p.id }}</td>
+                            <td class="fw-semibold text-dark">{{ p.nombre }}</td>
+                            <td class="text-muted small text-truncate" style="max-width: 200px;" title="{{ p.descripcion or 'Sin descripción' }}">
+                                {{ p.descripcion if p.descripcion else '<span class="fst-italic text-black-50">Sin descripción</span>'|safe }}
+                            </td>
+                            <td>
+                                <span class="badge bg-info text-white rounded-2 px-2 py-1">{{ p.categoria }}</span>
+                            </td>
+                            <td class="fw-medium">${{ "%.2f"|format(p.precio) }}</td>
+                            <td>{{ p.stock }} unidades</td>
+                            <td>
+                                {% if p.stock > 0 %}
+                                    <span class="badge bg-success rounded-pill px-2 py-1">Disponible</span>
+                                {% else %}
+                                    <span class="badge bg-danger rounded-pill px-2 py-1">Agotado</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end pe-4 text-nowrap">
+                                {% if current_user.rol == 'usuario' %}
+                                    {% if p.stock > 0 %}
+                                        <div class="d-inline-flex align-items-center justify-content-end gap-1">
+                                            <input type="number" name="cantidad_{{ p.id }}" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center fw-bold rounded-2 input-cantidad" data-id="{{ p.id }}" style="width: 65px;" title="Cantidad">
+                                            <button type="submit" formaction="{{ url_for('agregar_al_carrito', id_producto=p.id) }}" class="btn btn-outline-primary btn-sm rounded-3 shadow-sm px-2" title="Agregar solo este producto" onclick="limpiarMemoriaSeleccion()">
+                                                <i class="bi bi-cart-plus"></i> Agregar
+                                            </button>
+                                        </div>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Sin Stock</span>
+                                    {% endif %}
+                                {% else %}
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <a href="{{ url_for('editar_producto', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
+                                            <i class="bi bi-pencil-square"></i> Editar
+                                        </a>
+                                        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar">
+                                            <i class="bi bi-trash"></i> Eliminar
+                                        </button>
+                                    </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="9" class="text-center py-5 text-muted">
+                                <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
+                                No se encontraron productos activos con los criterios ingresados.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Paginación de Registros -->
+            {% if total_pages > 1 %}
+            <div class="card-footer bg-white border-0 py-3">
+                <nav aria-label="Navegación de páginas">
+                    <ul class="pagination pagination-sm justify-content-center m-0 gap-1">
+                        <li class="page-item {{ 'disabled' if page <= 1 }}">
+                            <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page-1, q=q) }}">
+                                <i class="bi bi-chevron-left me-1"></i> Anterior
+                            </a>
+                        </li>
+                        
+                        {% for num in range(1, total_pages + 1) %}
+                        <li class="page-item {{ 'active' if num == page }}">
+                            <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=num, q=q) }}">{{ num }}</a>
+                        </li>
+                        {% endfor %}
+
+                        <li class="page-item {{ 'disabled' if page >= total_pages }}">
+                            <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page+1, q=q) }}">
+                                Siguiente <i class="bi bi-chevron-right ms-1"></i>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        </div>
+    </form>
 </div>
 
 <!-- Modales de Confirmación de Baja de Producto -->
@@ -188,7 +211,7 @@
     {% endfor %}
 {% endif %}
 
-<!-- Script de Búsqueda con Envío Progresivo -->
+<!-- Script de Búsqueda y Persistencia de Selección -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const inputBusqueda = document.getElementById('inputBusqueda');
@@ -196,15 +219,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let timeoutId;
 
     if (inputBusqueda && formBusqueda) {
-        // Mantiene el foco y la posición del cursor si se recarga la página
-        if (inputBusqueda.value.length > 0) {
-            inputBusqueda.focus();
-            const val = inputBusqueda.value;
-            inputBusqueda.value = '';
-            inputBusqueda.value = val;
-        }
-
-        // Ejecuta la búsqueda 400ms después de que el usuario deja de escribir
         inputBusqueda.addEventListener('input', function() {
             clearTimeout(timeoutId);
             timeoutId = setTimeout(function() {
@@ -212,6 +226,60 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 400);
         });
     }
+
+    // --- LÓGICA DE PERSISTENCIA CON LOCALSTORAGE ---
+    const checkboxes = document.querySelectorAll('.check-producto');
+    const inputsCantidad = document.querySelectorAll('.input-cantidad');
+
+    // 1. Cargar selecciones previas guardadas al recargar o buscar
+    checkboxes.forEach(cb => {
+        const id = cb.dataset.id;
+        const savedChecked = localStorage.getItem('prod_check_' + id);
+        if (savedChecked === 'true') {
+            cb.checked = true;
+        }
+    });
+
+    inputsCantidad.forEach(input => {
+        const id = input.dataset.id;
+        const savedVal = localStorage.getItem('prod_cant_' + id);
+        if (savedVal) {
+            input.value = savedVal;
+        }
+    });
+
+    // 2. Guardar cambios en localStorage cuando el usuario marca o cambia cantidades
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', function() {
+            localStorage.setItem('prod_check_' + cb.dataset.id, cb.checked);
+        });
+    });
+
+    inputsCantidad.forEach(input => {
+        input.addEventListener('input', function() {
+            localStorage.setItem('prod_cant_' + input.dataset.id, input.value);
+        });
+    });
+
+    // 3. Seleccionar todos
+    const seleccionarTodos = document.getElementById('seleccionarTodos');
+    if (seleccionarTodos) {
+        seleccionarTodos.addEventListener('change', function() {
+            checkboxes.forEach(cb => {
+                cb.checked = seleccionarTodos.checked;
+                localStorage.setItem('prod_check_' + cb.dataset.id, cb.checked);
+            });
+        });
+    }
 });
+
+// Limpiar memoria temporal al enviar el formulario al carrito
+function limpiarMemoriaSeleccion() {
+    const checkboxes = document.querySelectorAll('.check-producto');
+    checkboxes.forEach(cb => {
+        localStorage.removeItem('prod_check_' + cb.dataset.id);
+        localStorage.removeItem('prod_cant_' + cb.dataset.id);
+    });
+}
 </script>
 {% endblock %}

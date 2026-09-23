@@ -139,7 +139,7 @@
                 <h5 class="fw-bold text-dark m-0">
                     <i class="bi bi-clock-history text-primary me-2"></i>Últimas Ventas Emitidas
                 </h5>
-                <small class="text-muted">Registro contable de facturas confirmadas y pagadas</small>
+                <small class="text-muted">Registro contable de facturas recientes</small>
             </div>
             <a href="{{ url_for('facturacion') }}" class="btn btn-sm btn-outline-primary rounded-3 px-3 shadow-sm">
                 Ver Historial Completo
@@ -171,14 +171,38 @@
                         </td>
                         <td class="fw-bold text-dark">${{ "%.2f"|format(f.monto) }}</td>
                         <td>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
-                                <i class="bi bi-check-circle-fill me-1"></i> Pagada
-                            </span>
+                            {% if f.estado|lower == 'pagada' %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
+                                    <i class="bi bi-check-circle-fill me-1"></i> Pagada
+                                </span>
+                            {% elif f.estado|lower == 'pendiente' or f.estado|lower == 'pendiente de pago' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-3 py-1">
+                                    <i class="bi bi-clock-history me-1"></i> Pendiente
+                                </span>
+                            {% else %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1">
+                                    <i class="bi bi-x-circle-fill me-1"></i> {{ f.estado }}
+                                </span>
+                            {% endif %}
                         </td>
-                        <td class="text-end pe-4">
-                            <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-3 px-3" title="Ver / Imprimir Comprobante">
-                                <i class="bi bi-printer me-1"></i> Comprobante
-                            </a>
+                        <td class="text-end pe-4 text-nowrap">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <!-- Botón para abrir el modal de verificación rápida -->
+                                <button type="button" class="btn btn-outline-warning rounded-3 px-2 me-1" data-bs-toggle="modal" data-bs-target="#modalEditarFacturaDash{{ f.id }}" title="Verificar / Actualizar Estado">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                                
+                                <!-- Botón de Comprobante con bloqueo condicional -->
+                                {% if f.id_estado == 1 or f.estado|lower == 'pagada' %}
+                                <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-outline-primary rounded-3 px-2" title="Imprimir Comprobante">
+                                    <i class="bi bi-printer"></i>
+                                </a>
+                                {% else %}
+                                <button type="button" class="btn btn-outline-secondary rounded-3 px-2 opacity-50" disabled title="Impresión bloqueada: Factura Pendiente o Anulada">
+                                    <i class="bi bi-printer-fill"></i>
+                                </button>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% else %}
@@ -229,4 +253,41 @@
         </div>
     </div>
 </div>
+
+<!-- Modales de Verificación de Pagos desde el Dashboard -->
+{% for f in facturas_recientes %}
+<div class="modal fade" id="modalEditarFacturaDash{{ f.id }}" tabindex="-1" aria-labelledby="modalLabelDash{{ f.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered text-start">
+        <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold" id="modalLabelDash{{ f.id }}">
+                    <i class="bi bi-shield-check me-2"></i> Verificar Pago: {{ f.numero }}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <form action="{{ url_for('cambiar_estado_factura', id_factura=f.id) }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div class="modal-body py-4">
+                    <p class="mb-3 text-secondary">Verifique el comprobante y modifique el estado de cobro de esta orden:</p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark small">Estado de Cobro:</label>
+                        <select name="nuevo_estado" class="form-select rounded-3">
+                            <option value="1" {% if f.id_estado == 1 %}selected{% endif %}>Pagada (Verificada y Confirmada)</option>
+                            <option value="2" {% if f.id_estado == 2 %}selected{% endif %}>Pendiente de Pago (En revisión)</option>
+                            <option value="3" {% if f.id_estado == 3 %}selected{% endif %}>Anulada</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success px-3 rounded-3 shadow-sm">
+                        <i class="bi bi-check-lg me-1"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
 {% endblock %}

@@ -77,10 +77,11 @@
                     {% set fac_cliente = f.cliente if f is mapping else f[2] %}
                     {% set fac_fecha = f.fecha if f is mapping else f[3] %}
                     {% set fac_monto = f.monto if f is mapping else f[4] %}
-                    {% set fac_estado = (f.estado if f is mapping else f[5]) or 'Pagada' %}
-                    {% set fac_metodo = f.metodo_pago if f is mapping else f[6] %}
-                    {% set fac_articulos = f.total_articulos if f is mapping else f[7] %}
-                    {% set fac_resumen = f.resumen_items if f is mapping else f[8] %}
+                    {% set fac_estado_id = f.id_estado if f is mapping else f[5] %}
+                    {% set fac_estado = (f.estado if f is mapping else f[6]) or 'Pagada' %}
+                    {% set fac_metodo = f.metodo_pago if f is mapping else f[7] %}
+                    {% set fac_articulos = f.total_articulos if f is mapping else f[8] %}
+                    {% set fac_resumen = f.resumen_items if f is mapping else f[9] %}
                     <tr>
                         <td class="ps-4 fw-bold font-monospace text-primary">{{ fac_numero }}</td>
                         <td class="fw-semibold text-dark">{{ fac_cliente }}</td>
@@ -109,7 +110,7 @@
                                 <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 fw-semibold">
                                     <i class="bi bi-check-circle-fill me-1"></i> Pagada
                                 </span>
-                            {% elif fac_estado|lower == 'pendiente' %}
+                            {% elif fac_estado|lower == 'pendiente' or fac_estado|lower == 'pendiente de pago' %}
                                 <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-1 fw-semibold">
                                     <i class="bi bi-clock-history me-1"></i> Pendiente
                                 </span>
@@ -132,10 +133,10 @@
                                 </button>
                                 {% endif %}
 
-                                <!-- Botón Editar -->
-                                <a href="{{ url_for('editar_factura', numero=fac_numero) }}" class="btn btn-outline-warning" title="Editar">
+                                <!-- Botón para abrir el modal de verificación de pago -->
+                                <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#modalEditarFactura{{ fac_id }}" title="Verificar / Actualizar Estado">
                                     <i class="bi bi-pencil-square"></i>
-                                </a>
+                                </button>
 
                                 <!-- Botón Anular / Eliminar (solo Admin) -->
                                 {% if current_user.rol == 'admin' %}
@@ -186,6 +187,47 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Modales de Verificación y Actualización de Estado de Pago -->
+{% for f in facturas %}
+{% set fac_id = f.id if f is mapping else f[0] %}
+{% set fac_numero = f.numero if f is mapping else f[1] %}
+{% set fac_estado_id = f.id_estado if f is mapping else f[5] %}
+<div class="modal fade" id="modalEditarFactura{{ fac_id }}" tabindex="-1" aria-labelledby="modalLabel{{ fac_id }}" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered text-start">
+        <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold" id="modalLabel{{ fac_id }}">
+                    <i class="bi bi-shield-check me-2"></i> Verificar y Actualizar Pago: {{ fac_numero }}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <!-- CORREGIDO AQUÍ: Apunta correctamente a cambiar_estado_factura -->
+            <form action="{{ url_for('cambiar_estado_factura', id_factura=fac_id) }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div class="modal-body py-4">
+                    <p class="mb-3 text-secondary">Verifique el comprobante de transferencia, efectivo o tarjeta y modifique el estado contable de esta orden:</p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark small">Estado de Cobro:</label>
+                        <select name="nuevo_estado" class="form-select rounded-3">
+                            <option value="1" {% if fac_estado_id == 1 %}selected{% endif %}>Pagada (Verificada y Confirmada)</option>
+                            <option value="2" {% if fac_estado_id == 2 %}selected{% endif %}>Pendiente de Pago (En revisión)</option>
+                            <option value="3" {% if fac_estado_id == 3 %}selected{% endif %}>Anulada</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success px-3 rounded-3 shadow-sm">
+                        <i class="bi bi-check-lg me-1"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
 
 <!-- Modales de Confirmación de Anulación -->
 {% if current_user.rol == 'admin' %}

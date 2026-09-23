@@ -31,7 +31,12 @@
                 <tbody>
                     {% for item in items %}
                     <tr>
-                        <td class="ps-4 fw-semibold text-dark">{{ item.nombre }}</td>
+                        <td class="ps-4">
+                            <div class="fw-semibold text-dark">{{ item.nombre }}</div>
+                            {% if item.categoria %}
+                                <span class="badge bg-light text-secondary border px-2 py-0 small mt-1">{{ item.categoria }}</span>
+                            {% endif %}
+                        </td>
                         <td class="text-center">
                             <div class="d-inline-flex align-items-center justify-content-center gap-1">
                                 <!-- Botón Disminuir (-) -->
@@ -141,7 +146,7 @@
                             <i class="bi bi-check-circle-fill fs-4 me-3 text-success"></i>
                             <div>
                                 <h6 class="fw-bold mb-1 text-dark">Pago en Efectivo / Cobro Directo</h6>
-                                <p class="small mb-0 text-muted">Tu factura se emitirá de inmediato con estado <strong class="text-success">Pagada</strong> tras registrar la confirmación del cobro.</p>
+                                <p class="small mb-0 text-muted">Tu factura se emitirá de inmediato tras registrar la confirmación del cobro.</p>
                             </div>
                         </div>
                     </div>
@@ -171,10 +176,29 @@
                         </div>
                     </div>
 
-                    <!-- Panel Informativo: Tarjeta -->
+                    <!-- Panel Informativo: Tarjeta (Con Débito/Crédito y Diferido) -->
                     <div id="detalle-tarjeta" class="border rounded-3 p-3 bg-light d-none">
                         <h6 class="fw-bold text-dark mb-3"><i class="bi bi-shield-check me-2 text-success"></i>Pasarela Segura con Tarjeta</h6>
                         <div class="row g-3">
+                            <!-- Tipo de Tarjeta: Crédito o Débito -->
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Tipo de Tarjeta:</label>
+                                <select name="tipo_tarjeta" id="tipo_tarjeta" class="form-select form-select-sm rounded-2" onchange="alternarDiferido(this.value)">
+                                    <option value="debito">Tarjeta de Débito</option>
+                                    <option value="credito">Tarjeta de Crédito</option>
+                                </select>
+                            </div>
+
+                            <!-- Selector de Diferido (Solo visible si es Crédito) -->
+                            <div class="col-md-6" id="contenedor-diferido" style="display: none;">
+                                <label class="form-label small fw-bold text-dark mb-1">Diferido / Meses:</label>
+                                <select name="diferido_meses" class="form-select form-select-sm rounded-2">
+                                    <option value="3">3 Meses sin intereses</option>
+                                    <option value="6">6 Meses sin intereses</option>
+                                    <option value="12">12 Meses con intereses</option>
+                                </select>
+                            </div>
+
                             <div class="col-md-7">
                                 <label class="form-label small fw-bold text-dark mb-1">Número de Tarjeta:</label>
                                 <input type="text" name="num_tarjeta" maxlength="19" class="form-control form-control-sm rounded-2 font-monospace" placeholder="4500 0000 0000 0000">
@@ -183,11 +207,11 @@
                                 <label class="form-label small fw-bold text-dark mb-1">Titular:</label>
                                 <input type="text" name="titular_tarjeta" class="form-control form-control-sm rounded-2" placeholder="Como figura en la tarjeta">
                             </div>
-                            <div class="col-6 col-md-4">
+                            <div class="col-6 col-md-6">
                                 <label class="form-label small fw-bold text-dark mb-1">Expiración (MM/AA):</label>
                                 <input type="text" name="exp_tarjeta" maxlength="5" class="form-control form-control-sm rounded-2 text-center" placeholder="12/28">
                             </div>
-                            <div class="col-6 col-md-4">
+                            <div class="col-6 col-md-6">
                                 <label class="form-label small fw-bold text-dark mb-1">CVV:</label>
                                 <input type="password" name="cvv_tarjeta" maxlength="4" class="form-control form-control-sm rounded-2 text-center" placeholder="•••">
                             </div>
@@ -211,19 +235,19 @@
                     </div>
                     <hr class="my-3">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <span class="fs-5 fw-bold text-dark">Total Cobrado:</span>
+                        <span class="fs-5 fw-bold text-dark">Total Pedido:</span>
                         <span class="fs-4 fw-bold text-success">${{ "%.2f"|format(total) }}</span>
                     </div>
 
                     <div class="mb-3">
-                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill w-100 py-2 small">
-                            <i class="bi bi-shield-check me-1"></i> Emisión con Cobro Verificado
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill w-100 py-2 small">
+                            <i class="bi bi-clock-history me-1"></i> Orden en Estado Pendiente
                         </span>
                     </div>
 
                     <!-- Botón Confirmar Compra -->
                     <button type="submit" class="btn btn-success btn-lg w-100 py-3 rounded-3 shadow fw-bold mb-2">
-                        <i class="bi bi-check-circle-fill me-2"></i> Confirmar y Facturar
+                        <i class="bi bi-check-circle-fill me-2"></i> Confirmar Pedido
                     </button>
 
                     <!-- Botón Vaciar Carrito (Modal nativo Bootstrap) -->
@@ -314,6 +338,15 @@ function cambiarMetodo(tipo) {
     } else if (tipo === 'tarjeta') {
         const el = document.querySelector('label[for="pago_tarjeta"]');
         if (el) el.classList.add('activa');
+    }
+}
+
+function alternarDiferido(valor) {
+    const contenedor = document.getElementById('contenedor-diferido');
+    if (valor === 'credito') {
+        contenedor.style.display = 'block';
+    } else {
+        contenedor.style.display = 'none';
     }
 }
 

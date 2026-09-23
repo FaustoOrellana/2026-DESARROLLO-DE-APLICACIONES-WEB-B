@@ -26,10 +26,11 @@
                     <tr>
                         <th class="ps-4">Nº Comprobante</th>
                         <th>Fecha de Emisión</th>
+                        <th>Productos Facturados</th>
                         <th>Forma de Pago</th>
                         <th>Monto Total ({{ sistema.moneda }})</th>
                         <th>Estado de Cobro</th>
-                        <th class="text-end pe-4" style="width: 170px;">Acción</th>
+                        <th class="text-end pe-4" style="width: 190px;">Acción</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -38,8 +39,10 @@
                     {% set fac_numero = f.numero if f is mapping else f[1] %}
                     {% set fac_fecha = f.fecha if f is mapping else f[2] %}
                     {% set fac_monto = f.monto if f is mapping else f[3] %}
-                    {% set fac_estado = f.estado if f is mapping else f[5] %}
-                    {% set fac_metodo = f.metodo_pago if f is mapping else f[6] %}
+                    {% set fac_estado = f.estado if f is mapping else f[4] %}
+                    {% set fac_metodo = f.metodo_pago if f is mapping else f[5] %}
+                    {% set fac_total_art = f.total_articulos if f is mapping else f[6] %}
+                    {% set fac_resumen = f.resumen_items if f is mapping else f[7] %}
                     <tr>
                         <!-- Identificador Secuencial -->
                         <td class="ps-4 fw-bold font-monospace text-primary">
@@ -47,27 +50,43 @@
                         </td>
 
                         <!-- Fecha de Emisión -->
-                        <td class="text-muted small">
+                        <td class="text-muted small text-nowrap">
                             {{ fac_fecha.strftime('%d/%m/%Y') if (fac_fecha and fac_fecha.strftime is defined) else (fac_fecha or 'N/A') }}
                         </td>
 
-                        <!-- Método de Pago -->
+                        <!-- Productos Facturados (Detalle Consolidado) -->
                         <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-light text-secondary border px-2 py-1 text-nowrap">
+                                    <i class="bi bi-box-seam me-1"></i> {{ fac_total_art }} unid.
+                                </span>
+                                <span class="text-muted small text-truncate" style="max-width: 240px;" title="{{ fac_resumen }}">
+                                    {{ fac_resumen }}
+                                </span>
+                            </div>
+                        </td>
+
+                        <!-- Método de Pago -->
+                        <td class="text-nowrap">
                             <span class="badge bg-light text-dark border px-2 py-1">
                                 <i class="bi bi-wallet2 text-primary me-1"></i> {{ fac_metodo or 'Efectivo' }}
                             </span>
                         </td>
 
                         <!-- Monto -->
-                        <td class="fw-bold text-dark">
+                        <td class="fw-bold text-dark text-nowrap">
                             ${{ "%.2f"|format(fac_monto|float) }}
                         </td>
 
                         <!-- Estado de Cobro -->
-                        <td>
+                        <td class="text-nowrap">
                             {% if fac_estado == 'Pagada' %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
                                     <i class="bi bi-check-circle-fill me-1"></i> Pagada
+                                </span>
+                            {% elif fac_estado == 'Pendiente' or fac_estado == 'Pendiente de Pago' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-3 py-1">
+                                    <i class="bi bi-clock-history me-1"></i> Pendiente
                                 </span>
                             {% elif fac_estado == 'Anulada' %}
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1">
@@ -75,21 +94,27 @@
                                 </span>
                             {% else %}
                                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1">
-                                    {{ fac_estado or 'Completada' }}
+                                    {{ fac_estado or 'Registrada' }}
                                 </span>
                             {% endif %}
                         </td>
 
-                        <!-- Acción: Ver Comprobante -->
-                        <td class="text-end pe-4">
-                            <a href="{{ url_for('descargar_factura', id_factura=fac_id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-3 px-3 shadow-sm" title="Ver / Imprimir Comprobante">
-                                <i class="bi bi-printer-fill me-1"></i> Comprobante
-                            </a>
+                        <!-- Acción: Ver Comprobante o Bloqueo por Pendiente -->
+                        <td class="text-end pe-4 text-nowrap">
+                            {% if fac_estado == 'Pagada' %}
+                                <a href="{{ url_for('descargar_factura', id_factura=fac_id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-3 px-3 shadow-sm" title="Imprimir Comprobante Oficial">
+                                    <i class="bi bi-printer-fill me-1"></i> Comprobante
+                                </a>
+                            {% else %}
+                                <button type="button" class="btn btn-sm btn-light text-muted border rounded-3 px-3" disabled title="El comprobante se habilitará cuando el comercio verifique el pago">
+                                    <i class="bi bi-lock-fill me-1"></i> En revisión
+                                </button>
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center py-5 text-muted">
+                        <td colspan="7" class="text-center py-5 text-muted">
                             <i class="bi bi-bag-x fs-1 d-block mb-2 text-secondary opacity-50"></i>
                             <h5 class="fw-bold text-secondary">Aún no registras compras</h5>
                             <p class="small mb-3">Revisa nuestro inventario corporativo y realiza tu primer pedido.</p>
