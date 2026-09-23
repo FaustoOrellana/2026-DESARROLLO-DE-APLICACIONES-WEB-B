@@ -11,10 +11,46 @@
             <h2 class="fw-bold text-dark m-0">Historial de Facturación</h2>
         </div>
         <div class="d-flex align-items-center gap-2 gap-sm-3 flex-wrap">
-            <span class="badge bg-warning text-dark fs-6 px-3 py-2 rounded-3">Total: {{ facturas|length }}</span>
-            <a href="{{ url_for('formulario_facturacion') }}" class="btn btn-warning fw-semibold px-3 py-2 rounded-3 text-nowrap">
+            <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Total Emitidas: {{ total_items }}</span>
+            {% if current_user.rol in ['admin', 'operador'] %}
+            <a href="{{ url_for('formulario_facturacion') }}" class="btn btn-primary fw-semibold px-3 py-2 rounded-3 text-nowrap shadow-sm">
                 <i class="bi bi-receipt me-1"></i> Nueva Factura
             </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Barra de Búsqueda con Envío Automático -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-3">
+            <form id="formBusquedaFacturas" method="GET" action="{{ url_for('facturacion') }}" class="row g-2 align-items-center">
+                <div class="col-md-6 col-lg-5">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-end-0 text-muted">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               id="inputBusquedaFacturas" 
+                               name="q" 
+                               class="form-control bg-light border-start-0 ps-0" 
+                               placeholder="Buscar por N° comprobante o cliente..." 
+                               value="{{ q }}" 
+                               autocomplete="off">
+                        {% if q %}
+                        <a href="{{ url_for('facturacion') }}" class="btn btn-outline-secondary border-start-0" title="Limpiar búsqueda">
+                            <i class="bi bi-x-lg"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-7 text-md-end text-muted small mt-2 mt-md-0">
+                    {% if q %}
+                        Resultados encontrados para: <strong class="text-dark">"{{ q }}"</strong> (Página {{ page }} de {{ total_pages }})
+                    {% else %}
+                        Página <strong class="text-dark">{{ page }}</strong> de <strong class="text-dark">{{ total_pages }}</strong>
+                    {% endif %}
+                </div>
+            </form>
         </div>
     </div>
 
@@ -25,11 +61,11 @@
                 <thead class="table-light text-nowrap">
                     <tr>
                         <th class="ps-4">Nº Comprobante</th>
-                        <th>Cliente</th>
+                        <th>Cliente / Razón Social</th>
                         <th>Fecha de Emisión</th>
                         <th>Método de Pago</th>
                         <th>Monto Total ({{ sistema.moneda }})</th>
-                        <th>Estado</th>
+                        <th>Estado de Cobro</th>
                         <th class="text-end pe-4">Acciones</th>
                     </tr>
                 </thead>
@@ -38,7 +74,7 @@
                     <tr>
                         <td class="ps-4 fw-bold font-monospace text-primary">{{ f.numero }}</td>
                         <td class="fw-semibold text-dark">{{ f.cliente }}</td>
-                        <td class="text-muted">{{ f.fecha }}</td>
+                        <td class="text-muted small">{{ f.fecha }}</td>
                         <td>
                             <span class="badge bg-light text-dark border px-2 py-1">
                                 <i class="bi bi-wallet2 text-primary me-1"></i> {{ f.metodo_pago or 'Efectivo' }}
@@ -46,41 +82,26 @@
                         </td>
                         <td class="fw-bold text-dark">${{ "%.2f"|format(f.monto) }}</td>
                         <td>
-                            {% if f.estado == 'Pagada' %}
-                                <span class="badge bg-success rounded-pill px-2 py-1"><i class="bi bi-check-circle-fill me-1"></i>Pagada</span>
-                            {% elif f.estado == 'Pendiente' %}
-                                <span class="badge bg-warning text-dark rounded-pill px-2 py-1"><i class="bi bi-clock-history me-1"></i>Pendiente</span>
-                            {% else %}
-                                <span class="badge bg-secondary rounded-pill px-2 py-1">{{ f.estado }}</span>
-                            {% endif %}
+                            <span class="badge bg-success rounded-pill px-2 py-1">
+                                <i class="bi bi-check-circle-fill me-1"></i> Pagada
+                            </span>
                         </td>
                         <td class="text-end pe-4 text-nowrap">
                             <div class="btn-group btn-group-sm" role="group">
-                                <!-- Botón Cobrar / Confirmar Pago (solo para facturas Pendientes) -->
-                                {% if f.estado == 'Pendiente' %}
-                                <form action="{{ url_for('cambiar_estado_factura', id_factura=f.id) }}" method="POST" class="d-inline m-0">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                    <input type="hidden" name="id_estado" value="1"/>
-                                    <button type="submit" class="btn btn-outline-success" title="Confirmar recepción de dinero y marcar como Pagada" onclick="return confirm('¿Confirmas que el pago de la factura {{ f.numero }} ya fue recibido/verificado?');">
-                                        <i class="bi bi-cash-coin me-1"></i> Cobrar
-                                    </button>
-                                </form>
-                                {% endif %}
-
                                 <!-- Botón Imprimir / Ver Comprobante -->
                                 <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-outline-primary" title="Imprimir / Ver Comprobante">
-                                    <i class="bi bi-printer me-1"></i> Imprimir
+                                    <i class="bi bi-printer"></i>
                                 </a>
 
                                 <!-- Botón Editar -->
                                 <a href="{{ url_for('editar_factura', numero=f.numero) }}" class="btn btn-outline-warning" title="Editar">
-                                    <i class="bi bi-pencil-square me-1"></i> Editar
+                                    <i class="bi bi-pencil-square"></i>
                                 </a>
 
-                                <!-- Botón Eliminar (solo Admin) -->
-                                {% if current_user.es_admin() %}
-                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarFac{{ f.id }}" title="Eliminar">
-                                    <i class="bi bi-trash me-1"></i> Eliminar
+                                <!-- Botón Anular / Eliminar (solo Admin) -->
+                                {% if current_user.rol == 'admin' %}
+                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarFac{{ f.id }}" title="Anular Factura">
+                                    <i class="bi bi-x-circle"></i>
                                 </button>
                                 {% endif %}
                             </div>
@@ -88,46 +109,100 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">
-                            <i class="bi bi-receipt-cutoff fs-2 d-block mb-1 text-secondary opacity-50"></i>
-                            No hay comprobantes registrados en el sistema.
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-receipt-cutoff fs-2 d-block mb-2 text-secondary"></i>
+                            No se encontraron comprobantes activos con los criterios ingresados.
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        <!-- Paginador Corporativo -->
+        {% if total_pages > 1 %}
+        <div class="card-footer bg-white border-0 py-3">
+            <nav aria-label="Navegación de facturas">
+                <ul class="pagination pagination-sm justify-content-center m-0 gap-1">
+                    <li class="page-item {{ 'disabled' if page <= 1 }}">
+                        <a class="page-link rounded-3 px-3" href="{{ url_for('facturacion', page=page-1, q=q) }}">
+                            <i class="bi bi-chevron-left me-1"></i> Anterior
+                        </a>
+                    </li>
+                    
+                    {% for num in range(1, total_pages + 1) %}
+                    <li class="page-item {{ 'active' if num == page }}">
+                        <a class="page-link rounded-3 px-3" href="{{ url_for('facturacion', page=num, q=q) }}">{{ num }}</a>
+                    </li>
+                    {% endfor %}
+
+                    <li class="page-item {{ 'disabled' if page >= total_pages }}">
+                        <a class="page-link rounded-3 px-3" href="{{ url_for('facturacion', page=page+1, q=q) }}">
+                            Siguiente <i class="bi bi-chevron-right ms-1"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
     </div>
 </div>
 
-<!-- Modales de Confirmación de Eliminación ubicados fuera de la tabla -->
-{% for f in facturas %}
-<div class="modal fade" id="modalEliminarFac{{ f.id }}" tabindex="-1" aria-labelledby="modalLabelFac{{ f.id }}" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered text-start">
-        <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title fw-bold" id="modalLabelFac{{ f.id }}">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body py-4">
-                <p class="mb-1">¿Está seguro de que desea eliminar permanentemente la siguiente factura?</p>
-                <p class="fw-bold font-monospace text-primary fs-5 mb-1">{{ f.numero }}</p>
-                <p class="mb-1 text-dark">Cliente: <strong>{{ f.cliente }}</strong> | Monto: <strong>${{ "%.2f"|format(f.monto) }}</strong></p>
-                <small class="text-muted">Al eliminar esta cabecera, se eliminarán en cascada los registros asociados en el detalle de la factura en PostgreSQL.</small>
-            </div>
-            <div class="modal-footer bg-light border-0">
-                <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                <form action="{{ url_for('eliminar_factura', numero=f.numero) }}" method="POST" class="d-inline">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                    <button type="submit" class="btn btn-danger px-3 rounded-3">
-                        <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
-                    </button>
-                </form>
+<!-- Modales de Confirmación de Anulación ubicados fuera de la tabla -->
+{% if current_user.rol == 'admin' %}
+    {% for f in facturas %}
+    <div class="modal fade" id="modalEliminarFac{{ f.id }}" tabindex="-1" aria-labelledby="modalLabelFac{{ f.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered text-start">
+            <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title fw-bold" id="modalLabelFac{{ f.id }}">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Anulación
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <p class="mb-1 text-secondary">¿Está seguro de que desea anular el siguiente comprobante contable?</p>
+                    <p class="fw-bold font-monospace text-primary fs-5 mb-1">{{ f.numero }}</p>
+                    <p class="mb-1 text-dark">Cliente: <strong>{{ f.cliente }}</strong> | Total: <strong>${{ "%.2f"|format(f.monto) }}</strong></p>
+                    <small class="text-muted">El registro cambiará al estado <strong>Anulada</strong> y los artículos facturados se reintegrarán automáticamente al stock disponible.</small>
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <form action="{{ url_for('eliminar_factura', numero=f.numero) }}" method="POST" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <button type="submit" class="btn btn-danger px-3 rounded-3 shadow-sm">
+                            <i class="bi bi-x-circle-fill me-1"></i> Sí, anular
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
-</div>
-{% endfor %}
+    {% endfor %}
+{% endif %}
+
+<!-- Script de Búsqueda con Envío Progresivo (Debounce) -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const inputBusqueda = document.getElementById('inputBusquedaFacturas');
+    const formBusqueda = document.getElementById('formBusquedaFacturas');
+    let timeoutId;
+
+    if (inputBusqueda && formBusqueda) {
+        if (inputBusqueda.value.length > 0) {
+            inputBusqueda.focus();
+            const val = inputBusqueda.value;
+            inputBusqueda.value = '';
+            inputBusqueda.value = val;
+        }
+
+        inputBusqueda.addEventListener('input', function() {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(function() {
+                formBusqueda.submit();
+            }, 400);
+        });
+    }
+});
+</script>
 {% endblock %}

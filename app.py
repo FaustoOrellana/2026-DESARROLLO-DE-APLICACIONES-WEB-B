@@ -1,6 +1,7 @@
 import os
 import io
 import random
+import math
 from functools import wraps
 from datetime import datetime, timedelta
 from flask import Flask, redirect, render_template, request, url_for, flash, session, send_file
@@ -26,12 +27,12 @@ from forms.login_form import LoginForm
 # Conexión centralizada con PostgreSQL
 from conexion.conexion import obtener_conexion
 
-from flask_wtf.csrf import CSRFProtect  # <-- Importar
+from flask_wtf.csrf import CSRFProtect
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'techmanager_dev_fallback_key_2026')
 
-csrf = CSRFProtect(app)  # <-- Inicializar CSRFProtect globalmente
+csrf = CSRFProtect(app)
 
 # --- CONFIGURACIÓN FLASK-LOGIN ---
 login_manager = LoginManager()
@@ -40,28 +41,71 @@ login_manager.login_view = 'login'
 login_manager.login_message = 'Debe iniciar sesión para acceder a esta sección.'
 login_manager.login_message_category = 'warning'
 
-# Recupera el usuario desde PostgreSQL por su identificador
+
+def extraer_columna(fila, clave, indice, default=None):
+    """Extrae valores de forma agnóstica soportando RealDictCursor y tuplas."""
+    if fila is None:
+        return default
+    if isinstance(fila, dict):
+        return fila.get(clave, default)
+    try:
+        return fila[indice]
+    except (IndexError, TypeError):
+        return default
+
+
 @login_manager.user_loader
 def load_user(user_id):
+    # 1. Validación estricta del identificador
+    if not user_id or not str(user_id).isdigit():
+        return None
+
     conn = obtener_conexion()
     if not conn:
         return None
+
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, usuario, password, rol FROM usuarios WHERE id = %s;", (int(user_id),))
+        cursor.execute('''
+            SELECT u.id, u.usuario, u.password, u.rol, u.email, u.activo, c.nombre
+            FROM usuarios u
+            LEFT JOIN clientes c ON c.usuario_id = u.id
+            WHERE u.id = %s
+            LIMIT 1;
+        ''', (int(user_id),))
         u = cursor.fetchone()
         cursor.close()
+
         if u:
-            rol_db = u.get('rol') if isinstance(u, dict) else u[3]
-            usuario_db = u.get('usuario') if isinstance(u, dict) else u[1]
-            pass_db = u.get('password') if isinstance(u, dict) else u[2]
-            id_db = u.get('id') if isinstance(u, dict) else u[0]
-            return Usuario(id=id_db, usuario=usuario_db, password=pass_db, rol=rol_db or 'usuario')
-    except Exception:
+            id_db = extraer_columna(u, 'id', 0)
+            usuario_db = extraer_columna(u, 'usuario', 1)
+            pass_db = extraer_columna(u, 'password', 2)
+            rol_db = extraer_columna(u, 'rol', 3, 'usuario')
+            email_db = extraer_columna(u, 'email', 4)
+            activo_db = extraer_columna(u, 'activo', 5, True)
+            nombre_db = extraer_columna(u, 'nombre', 6)
+
+            # Si el usuario está inactivo (Soft-Delete), invalidar sesión
+            if activo_db is False:
+                return None
+
+            return Usuario(
+                id=id_db,
+                usuario=usuario_db,
+                password=pass_db,
+                rol=rol_db or 'usuario',
+                email=email_db,
+                activo=True,
+                nombre=nombre_db or usuario_db
+            )
+    except Exception as e:
+        print(f"❌ Error al cargar usuario en load_user: {e}")
         return None
     finally:
         conn.close()
+
     return None
+
 
 # --- DECORADOR PARA RESTRINGIR POR ROLES ---
 def roles_requeridos(*roles_permitidos):
@@ -71,12 +115,20 @@ def roles_requeridos(*roles_permitidos):
             if not current_user.is_authenticated:
                 flash('Debe iniciar sesión para acceder a esta sección.', 'warning')
                 return redirect(url_for('login'))
+
             if not current_user.tiene_rol(*roles_permitidos):
                 flash('Acceso denegado: No tiene permisos suficientes para realizar esta acción.', 'danger')
+                
+                # Evita bucles de redirección según el rol
+                if getattr(current_user, 'rol', 'usuario') == 'usuario':
+                    return redirect(url_for('mis_facturas'))
+                
                 return redirect(url_for('dashboard'))
+
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
 
 SISTEMA_INFO = {
     "nombre_sistema": "TechManager System",
@@ -129,6 +181,7 @@ def captcha_image():
     data = image.generate(texto)
     return send_file(io.BytesIO(data.getvalue()), mimetype='image/png')
 
+# MÓDULO DE AUTENTICACIÓN Y REGISTRO (CON NOMBRES Y APELLIDOS)
 # --- RUTA DE REGISTRO ---
 @app.route('/registro', methods=['GET', 'POST'])
 def registro():
@@ -149,16 +202,20 @@ def registro():
 
         session.pop('captcha_text', None)
 
-        nombre_usuario = form.usuario.data.strip()
+        # Captura y formateo de datos personales
+        nombres = form.nombres.data.strip().title()
+        apellidos = form.apellidos.data.strip().title()
+        nombre_completo = f"{nombres} {apellidos}"
+
+        nombre_usuario = form.usuario.data.strip().lower()
         email_usuario = form.email.data.strip().lower()
         hash_password = generate_password_hash(form.password.data)
 
-        # Capturar ruc si existe en el formulario, o None si viene vacío
+        # Captura de RUC/Cédula y teléfono
         ruc_campo = getattr(form, 'ruc', None)
         ruc_valor = ruc_campo.data.strip() if ruc_campo and ruc_campo.data else request.form.get('ruc', '').strip()
         ruc_cliente = ruc_valor if ruc_valor else None
 
-        # Capturar teléfono obligatorio
         tel_campo = getattr(form, 'telefono', None)
         telefono_cliente = tel_campo.data.strip() if tel_campo and tel_campo.data else request.form.get('telefono', '').strip()
 
@@ -174,7 +231,7 @@ def registro():
                     cursor.close()
                     return render_template('registro.html', form=form, sistema=SISTEMA_INFO)
 
-                # 2. Si ingresó cédula/RUC, validar que no exista en 'clientes'
+                # 2. Validar que no exista la cédula/RUC en 'clientes'
                 if ruc_cliente:
                     cursor.execute('SELECT id FROM clientes WHERE ruc = %s;', (ruc_cliente,))
                     if cursor.fetchone():
@@ -182,27 +239,28 @@ def registro():
                         cursor.close()
                         return render_template('registro.html', form=form, sistema=SISTEMA_INFO)
 
-                # 3. Insertar en tabla 'usuarios' con rol 'usuario'
+                # 3. Insertar en tabla 'usuarios' con rol estándar 'usuario'
                 cursor.execute(
-                    '''INSERT INTO usuarios (usuario, email, password, rol) 
-                       VALUES (%s, %s, %s, %s) RETURNING id;''',
+                    '''INSERT INTO usuarios (usuario, email, password, rol, activo) 
+                       VALUES (%s, %s, %s, %s, TRUE) RETURNING id;''',
                     (nombre_usuario, email_usuario, hash_password, 'usuario')
                 )
                 res_id = cursor.fetchone()
                 nuevo_id = res_id['id'] if isinstance(res_id, dict) else res_id[0]
 
-                # 4. Insertar en tabla 'clientes' vinculando usuario_id
+                # 4. Insertar en tabla 'clientes' con el nombre completo y auditoría
                 cursor.execute(
-                    '''INSERT INTO clientes (nombre, email, telefono, ruc, usuario_id)
-                       VALUES (%s, %s, %s, %s, %s);''',
-                    (nombre_usuario, email_usuario, telefono_cliente, ruc_cliente, nuevo_id)
+                    '''INSERT INTO clientes (nombre, email, telefono, ruc, usuario_id, activo, created_by)
+                       VALUES (%s, %s, %s, %s, %s, TRUE, %s);''',
+                    (nombre_completo, email_usuario, telefono_cliente, ruc_cliente, nuevo_id, nombre_usuario)
                 )
 
                 conn.commit()
                 cursor.close()
 
-                flash('Usuario registrado exitosamente. Por favor inicie sesión.', 'success')
+                flash('Cuenta creada exitosamente. Inicie sesión con sus credenciales.', 'success')
                 return redirect(url_for('login'))
+
             except Exception as e:
                 conn.rollback()
                 flash(f'Error al registrar la cuenta: {e}', 'danger')
@@ -211,10 +269,14 @@ def registro():
 
     return render_template('registro.html', form=form, sistema=SISTEMA_INFO)
 
+
+# --- RUTA DE LOGIN ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        if current_user.tiene_rol('admin', 'operador'):
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('mis_facturas'))
 
     form = LoginForm()
     if form.validate_on_submit():
@@ -243,7 +305,8 @@ def login():
                 '''SELECT u.id, u.usuario, u.password, u.rol, u.intentos_fallidos, u.bloqueado_hasta, u.email 
                    FROM usuarios u
                    LEFT JOIN clientes c ON c.usuario_id = u.id
-                   WHERE u.usuario = %s OR LOWER(u.email) = LOWER(%s) OR c.ruc = %s
+                   WHERE (u.usuario = %s OR LOWER(u.email) = LOWER(%s) OR c.ruc = %s)
+                     AND u.activo = TRUE
                    LIMIT 1;''', 
                 (identificador, identificador, identificador)
             )
@@ -257,7 +320,7 @@ def login():
                 # 1. Comprobar bloqueo temporal (SOLO si NO es admin)
                 if rol_usr != 'admin' and bloqueado_hasta and ahora < bloqueado_hasta:
                     minutos_restantes = int((bloqueado_hasta - ahora).total_seconds() / 60) + 1
-                    flash(f'Cuenta bloqueada por seguridad tras 3 intentos fallidos. Intente nuevamente en {minutos_restantes} minuto(s).', 'danger')
+                    flash(f'Cuenta bloqueada temporalmente por seguridad. Intente nuevamente en {minutos_restantes} minuto(s).', 'danger')
                     cursor.close()
                     return render_template('login.html', form=form, sistema=SISTEMA_INFO)
 
@@ -294,7 +357,7 @@ def login():
                         return redirect(url_for('mis_facturas'))
                     return redirect(url_for('dashboard'))
                 else:
-                    # 3. Contraseña incorrecta: distinguir entre admin y el resto
+                    # 3. Contraseña incorrecta
                     if rol_usr == 'admin':
                         flash('Contraseña de administrador incorrecta.', 'danger')
                     else:
@@ -331,6 +394,7 @@ def login():
     return render_template('login.html', form=form, sistema=SISTEMA_INFO)
 
 
+# --- RUTA DE LOGOUT ---
 @app.route('/logout')
 @login_required
 def logout():
@@ -338,9 +402,7 @@ def logout():
     flash('Sesión finalizada correctamente.', 'info')
     return redirect(url_for('login'))
 
-
-# MÉTRICAS GLOBALES Y FINANCIERAS
-
+# MÉTRICAS GLOBALES Y FINANCIERAS (AUDITADAS Y SOLO ACTIVAS)
 def obtener_metricas_globales():
     conn = obtener_conexion()
     metricas = {
@@ -351,7 +413,8 @@ def obtener_metricas_globales():
         'total_ingresos': 0.0,
         'total_pendiente': 0.0,
         'productos_bajo_stock': 0,
-        'pendientes_recientes': []
+        'facturas_recientes': [],
+        'pendientes_recientes': []  # Mantenido por retrocompatibilidad
     }
     
     if not conn:
@@ -360,39 +423,37 @@ def obtener_metricas_globales():
     try:
         cursor = conn.cursor()
 
-        # 1. Contadores generales de entidades
-        cursor.execute("SELECT COUNT(*) FROM productos;")
+        # 1. Contadores generales de entidades activas
+        cursor.execute("SELECT COUNT(*) FROM productos WHERE activo = TRUE;")
         res = cursor.fetchone()
         metricas['total_productos'] = int(res[0] if not isinstance(res, dict) else res['count'])
 
-        cursor.execute("SELECT COUNT(*) FROM clientes;")
+        cursor.execute("SELECT COUNT(*) FROM clientes WHERE activo = TRUE;")
         res = cursor.fetchone()
         metricas['total_clientes'] = int(res[0] if not isinstance(res, dict) else res['count'])
 
-        cursor.execute("SELECT COUNT(*) FROM proveedores;")
+        cursor.execute("SELECT COUNT(*) FROM proveedores WHERE activo = TRUE;")
         res = cursor.fetchone()
         metricas['total_proveedores'] = int(res[0] if not isinstance(res, dict) else res['count'])
 
-        cursor.execute("SELECT COUNT(*) FROM facturas;")
+        cursor.execute("SELECT COUNT(*) FROM facturas WHERE activo = TRUE;")
         res = cursor.fetchone()
         metricas['total_facturas'] = int(res[0] if not isinstance(res, dict) else res['count'])
 
-        # 2. Total recaudado efectivo/tarjeta (Facturas Pagadas, id_estado = 1)
-        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM facturas WHERE id_estado = 1;")
+        # 2. Total recaudado real (Facturas Pagadas y Activas, id_estado = 1)
+        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM facturas WHERE activo = TRUE AND id_estado = 1;")
         res = cursor.fetchone()
         metricas['total_ingresos'] = float(res[0] if not isinstance(res, dict) else res['coalesce'])
 
-        # 3. Total por cobrar / conciliar (Facturas Pendientes, id_estado = 2)
-        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM facturas WHERE id_estado = 2;")
-        res = cursor.fetchone()
-        metricas['total_pendiente'] = float(res[0] if not isinstance(res, dict) else res['coalesce'])
+        # Total pendiente (por regla de negocio debe ser 0.00 en emisión pagada)
+        metricas['total_pendiente'] = 0.0
 
-        # 4. Alerta de stock crítico (menor o igual a 5 unidades)
-        cursor.execute("SELECT COUNT(*) FROM productos WHERE stock <= 5;")
+        # 3. Alerta de stock crítico en catálogo activo (stock <= 5 unidades)
+        cursor.execute("SELECT COUNT(*) FROM productos WHERE activo = TRUE AND stock <= 5;")
         res = cursor.fetchone()
         metricas['productos_bajo_stock'] = int(res[0] if not isinstance(res, dict) else res['count'])
 
-        # 5. Lista de comprobantes pendientes para cobro rápido (últimas 5)
+        # 4. Últimas 5 facturas pagadas emitidas con información del cliente y método
         cursor.execute('''
             SELECT f.id, f.numero, f.fecha, f.monto,
                    COALESCE(c.nombre, 'Consumidor Final') AS cliente,
@@ -400,22 +461,27 @@ def obtener_metricas_globales():
             FROM facturas f
             LEFT JOIN clientes c ON f.id_cliente = c.id
             LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-            WHERE f.id_estado = 2
+            WHERE f.activo = TRUE AND f.id_estado = 1
             ORDER BY f.id DESC
             LIMIT 5;
         ''')
         filas = cursor.fetchall()
         cursor.close()
 
+        lista_ventas = []
         for f in filas:
-            metricas['pendientes_recientes'].append({
+            item = {
                 'id': f['id'] if isinstance(f, dict) else f[0],
                 'numero': f['numero'] if isinstance(f, dict) else f[1],
                 'fecha': f['fecha'] if isinstance(f, dict) else f[2],
                 'monto': float(f['monto'] if isinstance(f, dict) else f[3]),
                 'cliente': f['cliente'] if isinstance(f, dict) else f[4],
                 'metodo_pago': f['metodo_pago'] if isinstance(f, dict) else f[5]
-            })
+            }
+            lista_ventas.append(item)
+
+        metricas['facturas_recientes'] = lista_ventas
+        metricas['pendientes_recientes'] = lista_ventas  # Por compatibilidad si alguna vista lo invoca
 
     except Exception as e:
         print(f"Error al obtener métricas globales: {e}")
@@ -424,6 +490,7 @@ def obtener_metricas_globales():
 
     return metricas
 
+# CONTROLADORES DE ENTRADA Y PANEL
 # 1. PORTADA PÚBLICA (visible para cualquiera)
 @app.route('/')
 def inicio():
@@ -438,11 +505,12 @@ def inicio():
         total_facturas=metricas['total_facturas']
     )
 
-# 2. PANEL PRIVADO (solo autenticados)
+
+# 2. PANEL PRIVADO (solo autenticados: admin y operador)
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Seguridad: si el usuario autenticado es cliente, lo enviamos a sus compras
+    # Seguridad: usuarios finales van a su panel de compras
     if current_user.rol == 'usuario':
         return redirect(url_for('mis_facturas'))
 
@@ -459,25 +527,67 @@ def dashboard():
         total_ingresos=metricas['total_ingresos'],
         total_pendiente=metricas['total_pendiente'],
         productos_bajo_stock=metricas['productos_bajo_stock'],
+        facturas_recientes=metricas['facturas_recientes'],
         pendientes_recientes=metricas['pendientes_recientes']
     )
 
 # MÓDULO 1: PRODUCTOS
-# 1. LISTADO (SELECT con LEFT JOIN y fetchall)
+# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
 @app.route('/productos')
 @login_required
 def productos():
     conn = obtener_conexion()
     productos_db = []
+    page = request.args.get('page', 1, type=int)
+    q = request.args.get('q', '', type=str).strip()
+    per_page = 8
+    offset = (page - 1) * per_page
+    total_items = 0
+    total_pages = 1
+
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.id, p.nombre, COALESCE(c.nombre, 'Sin categoría') AS categoria, p.precio, p.stock
+            
+            # Construcción dinámica de filtros
+            where_sql = "WHERE p.activo = TRUE"
+            params = []
+            
+            if q:
+                where_sql += """ AND (
+                    p.nombre ILIKE %s OR 
+                    COALESCE(c.nombre, '') ILIKE %s OR 
+                    COALESCE(p.descripcion, '') ILIKE %s
+                )"""
+                param_busqueda = f"%{q}%"
+                params.extend([param_busqueda, param_busqueda, param_busqueda])
+
+            # Conteo total para paginación (soporta tuplas y diccionarios)
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total
                 FROM productos p
                 LEFT JOIN categorias c ON p.id_categoria = c.id
-                ORDER BY p.id DESC;
-            ''')
+                {where_sql};
+            ''', tuple(params))
+            row_count = cursor.fetchone()
+            if row_count:
+                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
+            else:
+                total_items = 0
+            
+            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+
+            # Consulta paginada con LIMIT y OFFSET
+            query_datos = f'''
+                SELECT p.id, p.nombre, p.descripcion, COALESCE(c.nombre, 'Sin categoría') AS categoria, p.precio, p.stock
+                FROM productos p
+                LEFT JOIN categorias c ON p.id_categoria = c.id
+                {where_sql}
+                ORDER BY p.id DESC
+                LIMIT %s OFFSET %s;
+            '''
+            params_datos = list(params) + [per_page, offset]
+            cursor.execute(query_datos, tuple(params_datos))
             productos_db = cursor.fetchall()
             cursor.close()
         except Exception as e:
@@ -487,10 +597,18 @@ def productos():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
-    return render_template('productos.html', productos=productos_db, sistema=SISTEMA_INFO)
+    return render_template(
+        'productos.html', 
+        productos=productos_db, 
+        sistema=SISTEMA_INFO,
+        page=page,
+        total_pages=total_pages,
+        total_items=total_items,
+        q=q
+    )
 
 
-# 2. AGREGAR (INSERT INTO parametrizado con commit)
+# 2. AGREGAR (INSERT INTO con descripcion, created_by y commit)
 @app.route('/productos/formulario', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -529,8 +647,8 @@ def formulario_producto():
         precio = float(form.precio.data)
         stock = int(form.stock.data)
         id_categoria = int(form.categoria.data)
+        descripcion = form.descripcion.data.strip() if hasattr(form, 'descripcion') and form.descripcion.data else None
 
-        # id_marca es nullable en la BD
         id_marca = None
         if hasattr(form, 'marca') and form.marca.data and str(form.marca.data).isdigit():
             id_marca = int(form.marca.data)
@@ -540,9 +658,9 @@ def formulario_producto():
             try:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca)
-                    VALUES (%s, %s, %s, %s, %s);
-                ''', (nombre, precio, stock, id_categoria, id_marca))
+                    INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca, descripcion, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s);
+                ''', (nombre, precio, stock, id_categoria, id_marca, descripcion, current_user.usuario))
                 conn.commit()
                 cursor.close()
                 flash('Producto registrado correctamente.', 'success')
@@ -556,7 +674,7 @@ def formulario_producto():
     return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Producto")
 
 
-# 3. MODIFICAR (SELECT WHERE para cargar y UPDATE WHERE con commit)
+# 3. MODIFICAR (UPDATE WHERE con descripcion, modified_by y commit)
 @app.route('/productos/editar/<int:id>', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -571,7 +689,7 @@ def editar_producto(id):
     marcas = []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM productos WHERE id = %s;', (id,))
+        cursor.execute('SELECT * FROM productos WHERE id = %s AND activo = TRUE;', (id,))
         producto = cursor.fetchone()
 
         cursor.execute('SELECT id, nombre FROM categorias ORDER BY nombre ASC;')
@@ -586,7 +704,7 @@ def editar_producto(id):
         conn.close()
 
     if not producto:
-        flash('El producto solicitado no existe.', 'warning')
+        flash('El producto solicitado no existe o ha sido dado de baja.', 'warning')
         return redirect(url_for('productos'))
 
     form = ProductoForm()
@@ -600,6 +718,8 @@ def editar_producto(id):
         form.nombre.data = producto['nombre']
         form.precio.data = producto['precio']
         form.stock.data = producto['stock']
+        if hasattr(form, 'descripcion'):
+            form.descripcion.data = producto.get('descripcion') or ''
         if hasattr(form, 'categoria'):
             form.categoria.data = str(producto['id_categoria'])
         if hasattr(form, 'marca') and producto.get('id_marca'):
@@ -610,6 +730,7 @@ def editar_producto(id):
         precio = float(form.precio.data)
         stock = int(form.stock.data)
         id_categoria = int(form.categoria.data)
+        descripcion = form.descripcion.data.strip() if hasattr(form, 'descripcion') and form.descripcion.data else None
 
         id_marca = None
         if hasattr(form, 'marca') and form.marca.data and str(form.marca.data).isdigit():
@@ -621,9 +742,9 @@ def editar_producto(id):
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE productos 
-                    SET nombre = %s, precio = %s, stock = %s, id_categoria = %s, id_marca = %s
+                    SET nombre = %s, precio = %s, stock = %s, id_categoria = %s, id_marca = %s, descripcion = %s, modified_by = %s
                     WHERE id = %s;
-                ''', (nombre, precio, stock, id_categoria, id_marca, id))
+                ''', (nombre, precio, stock, id_categoria, id_marca, descripcion, current_user.usuario, id))
                 conn.commit()
                 cursor.close()
                 flash('Producto modificado exitosamente.', 'success')
@@ -637,7 +758,7 @@ def editar_producto(id):
     return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Producto")
 
 
-# 4. ELIMINAR (DELETE WHERE con commit y manejo de integridad)
+# 4. ELIMINAR (SOFT DELETE: UPDATE activo = FALSE con modified_by y commit)
 @app.route('/productos/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -646,13 +767,17 @@ def eliminar_producto(id):
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM productos WHERE id = %s;', (id,))
+            cursor.execute('''
+                UPDATE productos 
+                SET activo = FALSE, modified_by = %s 
+                WHERE id = %s;
+            ''', (current_user.usuario, id))
             conn.commit()
             cursor.close()
-            flash('Producto eliminado satisfactoriamente.', 'info')
+            flash('Producto dado de baja satisfactoriamente.', 'info')
         except Exception as e:
             conn.rollback()
-            flash(f'No se puede eliminar el producto porque ya forma parte de facturas registradas.', 'danger')
+            flash(f'Error al dar de baja el producto: {e}', 'danger')
         finally:
             conn.close()
 
@@ -660,23 +785,65 @@ def eliminar_producto(id):
 
 # MÓDULO: CLIENTES
 
-# 1. LISTADO (SELECT con LEFT JOIN para nombre de ciudad)
+# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
 @app.route('/clientes')
 @login_required
 @roles_requeridos('admin', 'operador')
 def clientes():
     conn = obtener_conexion()
     clientes_db = []
+    page = request.args.get('page', 1, type=int)
+    q = request.args.get('q', '', type=str).strip()
+    per_page = 8
+    offset = (page - 1) * per_page
+    total_items = 0
+    total_pages = 1
+
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('''
+            
+            # Filtro base: solo clientes activos
+            where_sql = "WHERE c.activo = TRUE"
+            params = []
+            
+            if q:
+                where_sql += """ AND (
+                    c.nombre ILIKE %s OR 
+                    c.ruc ILIKE %s OR 
+                    COALESCE(c.email, '') ILIKE %s OR 
+                    COALESCE(ci.nombre, '') ILIKE %s
+                )"""
+                param_busqueda = f"%{q}%"
+                params.extend([param_busqueda, param_busqueda, param_busqueda, param_busqueda])
+
+            # Conteo total para paginación (soporta tuplas y diccionarios de forma segura)
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total
+                FROM clientes c
+                LEFT JOIN ciudades ci ON c.id_ciudad = ci.id
+                {where_sql};
+            ''', tuple(params))
+            row_count = cursor.fetchone()
+            if row_count:
+                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
+            else:
+                total_items = 0
+            
+            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+
+            # Consulta paginada con LIMIT y OFFSET
+            query_datos = f'''
                 SELECT c.id, c.nombre, c.ruc, c.telefono, c.email,
                        COALESCE(ci.nombre, 'No asignada') AS ciudad
                 FROM clientes c
                 LEFT JOIN ciudades ci ON c.id_ciudad = ci.id
-                ORDER BY c.id DESC;
-            ''')
+                {where_sql}
+                ORDER BY c.id DESC
+                LIMIT %s OFFSET %s;
+            '''
+            params_datos = list(params) + [per_page, offset]
+            cursor.execute(query_datos, tuple(params_datos))
             clientes_db = cursor.fetchall()
             cursor.close()
         except Exception as e:
@@ -686,10 +853,18 @@ def clientes():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
-    return render_template('clientes.html', clientes=clientes_db, sistema=SISTEMA_INFO)
+    return render_template(
+        'clientes.html', 
+        clientes=clientes_db, 
+        sistema=SISTEMA_INFO,
+        page=page,
+        total_pages=total_pages,
+        total_items=total_items,
+        q=q
+    )
 
 
-# 2. AGREGAR (INSERT INTO parametrizado con commit)
+# 2. AGREGAR (INSERT INTO parametrizado con created_by y commit)
 @app.route('/clientes/formulario', methods=['GET', 'POST'])
 @roles_requeridos('admin', 'operador')
 @login_required
@@ -719,7 +894,6 @@ def formulario_cliente():
         telefono = form.telefono.data.strip()
         email = form.email.data.strip().lower()
 
-        # Si no selecciona ciudad o no existe el campo, se envía None (NULL en PostgreSQL)
         id_ciudad = None
         if hasattr(form, 'id_ciudad') and form.id_ciudad.data and str(form.id_ciudad.data).isdigit():
             id_ciudad = int(form.id_ciudad.data)
@@ -729,9 +903,9 @@ def formulario_cliente():
             try:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO clientes (nombre, ruc, telefono, email, id_ciudad)
-                    VALUES (%s, %s, %s, %s, %s);
-                ''', (nombre, ruc, telefono, email, id_ciudad))
+                    INSERT INTO clientes (nombre, ruc, telefono, email, id_ciudad, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s);
+                ''', (nombre, ruc, telefono, email, id_ciudad, current_user.usuario))
                 conn.commit()
                 cursor.close()
                 flash('Cliente registrado correctamente.', 'success')
@@ -745,7 +919,7 @@ def formulario_cliente():
     return render_template('formulario_cliente.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Cliente")
 
 
-# 3. MODIFICAR (Precarga en GET y UPDATE en POST)
+# 3. MODIFICAR (Precarga de activos en GET y UPDATE con modified_by en POST)
 @app.route('/clientes/editar/<int:id>', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -759,7 +933,7 @@ def editar_cliente(id):
     ciudades = []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM clientes WHERE id = %s;', (id,))
+        cursor.execute('SELECT * FROM clientes WHERE id = %s AND activo = TRUE;', (id,))
         cliente = cursor.fetchone()
 
         cursor.execute('SELECT id, nombre FROM ciudades ORDER BY nombre ASC;')
@@ -771,14 +945,13 @@ def editar_cliente(id):
         conn.close()
 
     if not cliente:
-        flash('El cliente solicitado no existe.', 'warning')
+        flash('El cliente solicitado no existe o ha sido dado de baja.', 'warning')
         return redirect(url_for('clientes'))
 
     form = ClienteForm()
     if hasattr(form, 'id_ciudad') and hasattr(form.id_ciudad, 'choices'):
         form.id_ciudad.choices = [('', 'Seleccione una ciudad (opcional)')] + [(str(c['id']), c['nombre']) for c in ciudades]
 
-    # En GET poblamos el formulario con los datos de PostgreSQL
     if request.method == 'GET':
         form.nombre.data = cliente['nombre']
         form.ruc.data = cliente['ruc']
@@ -787,7 +960,6 @@ def editar_cliente(id):
         if hasattr(form, 'id_ciudad') and cliente.get('id_ciudad'):
             form.id_ciudad.data = str(cliente['id_ciudad'])
 
-    # En POST validamos y actualizamos
     elif form.validate_on_submit():
         nombre = form.nombre.data.strip()
         ruc = form.ruc.data.strip()
@@ -804,9 +976,9 @@ def editar_cliente(id):
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE clientes
-                    SET nombre = %s, ruc = %s, telefono = %s, email = %s, id_ciudad = %s
+                    SET nombre = %s, ruc = %s, telefono = %s, email = %s, id_ciudad = %s, modified_by = %s
                     WHERE id = %s;
-                ''', (nombre, ruc, telefono, email, id_ciudad, id))
+                ''', (nombre, ruc, telefono, email, id_ciudad, current_user.usuario, id))
                 conn.commit()
                 cursor.close()
                 flash('Cliente actualizado correctamente.', 'success')
@@ -820,7 +992,7 @@ def editar_cliente(id):
     return render_template('formulario_cliente.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Cliente")
 
 
-# 4. ELIMINAR (DELETE con validación preventiva de facturas y commit)
+# 4. ELIMINAR (SOFT DELETE: UPDATE activo = FALSE con modified_by y commit)
 @app.route('/clientes/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -829,21 +1001,19 @@ def eliminar_cliente(id):
     if conn:
         try:
             cursor = conn.cursor()
-            # Validación preventiva de clave foránea en la tabla facturas
-            cursor.execute('SELECT COUNT(*) FROM facturas WHERE id_cliente = %s;', (id,))
-            res = cursor.fetchone()
-            facturas_asociadas = res['count'] if isinstance(res, dict) else res[0]
-
-            if facturas_asociadas > 0:
-                flash('No se puede eliminar el cliente porque tiene facturas emitidas registradas en el sistema.', 'warning')
-            else:
-                cursor.execute('DELETE FROM clientes WHERE id = %s;', (id,))
-                conn.commit()
-                flash('Cliente eliminado satisfactoriamente.', 'info')
+            # En lugar de DELETE físico, se realiza borrado lógico preservando la integridad referencial con facturas.
+            # El trigger global registra automáticamente el evento 'SOFT_DELETE' en auditoria.
+            cursor.execute('''
+                UPDATE clientes 
+                SET activo = FALSE, modified_by = %s 
+                WHERE id = %s;
+            ''', (current_user.usuario, id))
+            conn.commit()
             cursor.close()
+            flash('Cliente dado de baja satisfactoriamente.', 'info')
         except Exception as e:
             conn.rollback()
-            flash(f'Error al eliminar cliente: {e}', 'danger')
+            flash(f'Error al dar de baja al cliente: {e}', 'danger')
         finally:
             conn.close()
 
@@ -851,25 +1021,69 @@ def eliminar_cliente(id):
 
 # MÓDULO 3: PROVEEDORES
 
-# 1. LISTADO (SELECT con LEFT JOIN y fetchall)
+# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
 @app.route('/proveedores')
 @login_required
 @roles_requeridos('admin', 'operador')
 def proveedores():
     conn = obtener_conexion()
     proveedores_db = []
+    page = request.args.get('page', 1, type=int)
+    q = request.args.get('q', '', type=str).strip()
+    per_page = 8
+    offset = (page - 1) * per_page
+    total_items = 0
+    total_pages = 1
+
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('''
+            
+            # Filtro base: solo proveedores activos
+            where_sql = "WHERE p.activo = TRUE"
+            params = []
+
+            if q:
+                where_sql += """ AND (
+                    p.nombre ILIKE %s OR 
+                    COALESCE(p.contacto, '') ILIKE %s OR 
+                    COALESCE(p.telefono, '') ILIKE %s OR 
+                    COALESCE(c.nombre, '') ILIKE %s OR 
+                    COALESCE(ci.nombre, '') ILIKE %s
+                )"""
+                param_busqueda = f"%{q}%"
+                params.extend([param_busqueda, param_busqueda, param_busqueda, param_busqueda, param_busqueda])
+
+            # Conteo total para paginación (soporta tuplas y diccionarios)
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total
+                FROM proveedores p
+                LEFT JOIN categorias c ON p.id_categoria = c.id
+                LEFT JOIN ciudades ci ON p.id_ciudad = ci.id
+                {where_sql};
+            ''', tuple(params))
+            row_count = cursor.fetchone()
+            if row_count:
+                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
+            else:
+                total_items = 0
+
+            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+
+            # Consulta paginada con LIMIT y OFFSET
+            query_datos = f'''
                 SELECT p.id, p.nombre, p.contacto, p.telefono, 
                        COALESCE(c.nombre, 'Sin categoría') AS categoria,
                        COALESCE(ci.nombre, 'No asignada') AS ciudad
                 FROM proveedores p
                 LEFT JOIN categorias c ON p.id_categoria = c.id
                 LEFT JOIN ciudades ci ON p.id_ciudad = ci.id
-                ORDER BY p.id DESC;
-            ''')
+                {where_sql}
+                ORDER BY p.id DESC
+                LIMIT %s OFFSET %s;
+            '''
+            params_datos = list(params) + [per_page, offset]
+            cursor.execute(query_datos, tuple(params_datos))
             proveedores_db = cursor.fetchall()
             cursor.close()
         except Exception as e:
@@ -879,10 +1093,18 @@ def proveedores():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
-    return render_template('proveedores.html', proveedores=proveedores_db, sistema=SISTEMA_INFO)
+    return render_template(
+        'proveedores.html', 
+        proveedores=proveedores_db, 
+        sistema=SISTEMA_INFO,
+        page=page,
+        total_pages=total_pages,
+        total_items=total_items,
+        q=q
+    )
 
 
-# 2. AGREGAR (INSERT INTO parametrizado con commit)
+# 2. AGREGAR (INSERT INTO con created_by y commit)
 @app.route('/proveedores/formulario', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -918,7 +1140,7 @@ def formulario_proveedor():
 
     if form.validate_on_submit():
         nombre = form.nombre.data.strip()
-        contacto = form.contacto.data.strip()
+        contacto = form.contacto.data.strip() if hasattr(form, 'contacto') and form.contacto.data else None
         telefono = form.telefono.data.strip()
         id_categoria = int(form.categoria.data)
 
@@ -931,9 +1153,9 @@ def formulario_proveedor():
             try:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO proveedores (nombre, contacto, telefono, id_categoria, id_ciudad)
-                    VALUES (%s, %s, %s, %s, %s);
-                ''', (nombre, contacto, telefono, id_categoria, id_ciudad))
+                    INSERT INTO proveedores (nombre, contacto, telefono, id_categoria, id_ciudad, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s);
+                ''', (nombre, contacto, telefono, id_categoria, id_ciudad, current_user.usuario))
                 conn.commit()
                 cursor.close()
                 flash('Proveedor registrado correctamente.', 'success')
@@ -947,7 +1169,7 @@ def formulario_proveedor():
     return render_template('formulario_proveedor.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Proveedor")
 
 
-# 3. MODIFICAR (Precarga en GET y UPDATE en POST con commit)
+# 3. MODIFICAR (Precarga de activos en GET y UPDATE con modified_by en POST)
 @app.route('/proveedores/editar/<int:id>', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -962,7 +1184,7 @@ def editar_proveedor(id):
     ciudades = []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM proveedores WHERE id = %s;', (id,))
+        cursor.execute('SELECT * FROM proveedores WHERE id = %s AND activo = TRUE;', (id,))
         proveedor = cursor.fetchone()
 
         cursor.execute('SELECT id, nombre FROM categorias ORDER BY nombre ASC;')
@@ -977,7 +1199,7 @@ def editar_proveedor(id):
         conn.close()
 
     if not proveedor:
-        flash('El proveedor solicitado no existe.', 'warning')
+        flash('El proveedor solicitado no existe o ha sido dado de baja.', 'warning')
         return redirect(url_for('proveedores'))
 
     form = ProveedorForm()
@@ -989,7 +1211,8 @@ def editar_proveedor(id):
 
     if request.method == 'GET':
         form.nombre.data = proveedor['nombre']
-        form.contacto.data = proveedor['contacto']
+        if hasattr(form, 'contacto'):
+            form.contacto.data = proveedor.get('contacto') or ''
         form.telefono.data = proveedor['telefono']
         if hasattr(form, 'categoria'):
             form.categoria.data = str(proveedor['id_categoria'])
@@ -998,7 +1221,7 @@ def editar_proveedor(id):
 
     elif form.validate_on_submit():
         nombre = form.nombre.data.strip()
-        contacto = form.contacto.data.strip()
+        contacto = form.contacto.data.strip() if hasattr(form, 'contacto') and form.contacto.data else None
         telefono = form.telefono.data.strip()
         id_categoria = int(form.categoria.data)
 
@@ -1012,9 +1235,9 @@ def editar_proveedor(id):
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE proveedores 
-                    SET nombre = %s, contacto = %s, telefono = %s, id_categoria = %s, id_ciudad = %s
+                    SET nombre = %s, contacto = %s, telefono = %s, id_categoria = %s, id_ciudad = %s, modified_by = %s
                     WHERE id = %s;
-                ''', (nombre, contacto, telefono, id_categoria, id_ciudad, id))
+                ''', (nombre, contacto, telefono, id_categoria, id_ciudad, current_user.usuario, id))
                 conn.commit()
                 cursor.close()
                 flash('Proveedor actualizado exitosamente.', 'success')
@@ -1028,7 +1251,7 @@ def editar_proveedor(id):
     return render_template('formulario_proveedor.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Proveedor")
 
 
-# 4. ELIMINAR (DELETE WHERE restringido a POST con commit)
+# 4. ELIMINAR (SOFT DELETE: UPDATE activo = FALSE con modified_by y commit)
 @app.route('/proveedores/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -1037,13 +1260,18 @@ def eliminar_proveedor(id):
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM proveedores WHERE id = %s;', (id,))
+            # Borrado lógico: preserva la integridad referencial y registra la auditoría automáticamente
+            cursor.execute('''
+                UPDATE proveedores 
+                SET activo = FALSE, modified_by = %s 
+                WHERE id = %s;
+            ''', (current_user.usuario, id))
             conn.commit()
             cursor.close()
-            flash('Proveedor eliminado satisfactoriamente.', 'info')
+            flash('Proveedor dado de baja satisfactoriamente.', 'info')
         except Exception as e:
             conn.rollback()
-            flash(f'No se puede eliminar el proveedor (posible referencia de compras o productos asociados): {e}', 'danger')
+            flash(f'Error al dar de baja el proveedor: {e}', 'danger')
         finally:
             conn.close()
 
@@ -1052,25 +1280,66 @@ def eliminar_proveedor(id):
 # MÓDULO 4: FACTURACIÓN & CARRITO DE COMPRAS
 # ==============================================================================
 
-# 1. LISTADO ADMINISTRATIVO (SELECT con JOINs)
+# 1. LISTADO ADMINISTRATIVO (Búsqueda, Paginación y Filtro de Activas)
 @app.route('/facturacion')
 @login_required
 @roles_requeridos('admin', 'operador')
 def facturacion():
     conn = obtener_conexion()
     facturas_db = []
+    page = request.args.get('page', 1, type=int)
+    q = request.args.get('q', '', type=str).strip()
+    per_page = 8
+    offset = (page - 1) * per_page
+    total_items = 0
+    total_pages = 1
+
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('''
+            
+            # Filtro base: facturas activas
+            where_sql = "WHERE f.activo = TRUE"
+            params = []
+
+            if q:
+                where_sql += """ AND (
+                    f.numero ILIKE %s OR 
+                    c.nombre ILIKE %s OR 
+                    COALESCE(c.ruc, '') ILIKE %s
+                )"""
+                param_busqueda = f"%{q}%"
+                params.extend([param_busqueda, param_busqueda, param_busqueda])
+
+            # Conteo total para paginación
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total
+                FROM facturas f
+                INNER JOIN clientes c ON f.id_cliente = c.id
+                {where_sql};
+            ''', tuple(params))
+            row_count = cursor.fetchone()
+            if row_count:
+                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
+            else:
+                total_items = 0
+
+            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+
+            # Consulta paginada con JOINs
+            query_datos = f'''
                 SELECT f.id, f.numero, c.nombre AS cliente, f.fecha, f.monto, 
                        e.nombre AS estado, COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
                 FROM facturas f
                 INNER JOIN clientes c ON f.id_cliente = c.id
                 INNER JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-                ORDER BY f.id DESC;
-            ''')
+                {where_sql}
+                ORDER BY f.id DESC
+                LIMIT %s OFFSET %s;
+            '''
+            params_datos = list(params) + [per_page, offset]
+            cursor.execute(query_datos, tuple(params_datos))
             facturas_db = cursor.fetchall()
             cursor.close()
         except Exception as e:
@@ -1080,9 +1349,18 @@ def facturacion():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
-    return render_template('facturacion.html', facturas=facturas_db, sistema=SISTEMA_INFO)
+    return render_template(
+        'facturacion.html', 
+        facturas=facturas_db, 
+        sistema=SISTEMA_INFO,
+        page=page,
+        total_pages=total_pages,
+        total_items=total_items,
+        q=q
+    )
 
-# 2. AGREGAR FACTURA MANUALMENTE (ADMIN / OPERADOR)
+
+# 2. AGREGAR FACTURA MANUALMENTE (ADMIN / OPERADOR - SOLO FACTURAS PAGADAS)
 @app.route('/facturacion/formulario', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -1099,7 +1377,8 @@ def formulario_facturacion():
 
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, nombre FROM clientes ORDER BY nombre ASC;')
+        # Solo clientes y productos activos
+        cursor.execute('SELECT id, nombre FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
         clientes_bd = cursor.fetchall()
 
         cursor.execute('SELECT id, nombre FROM estados_factura ORDER BY id ASC;')
@@ -1108,7 +1387,7 @@ def formulario_facturacion():
         cursor.execute('SELECT id, nombre FROM metodos_pago ORDER BY id ASC;')
         metodos_bd = cursor.fetchall()
 
-        cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE stock > 0 ORDER BY nombre ASC;')
+        cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE activo = TRUE AND stock > 0 ORDER BY nombre ASC;')
         filas_productos = cursor.fetchall()
         productos_bd = [
             {
@@ -1146,6 +1425,7 @@ def formulario_facturacion():
                     id_cliente = c_id
                     break
 
+        # Regla estricta: Únicamente permitir emisión si el estado es PAGADA (id_estado = 1)
         estado_input = getattr(form, 'estado', None)
         id_estado = 1
         if estado_input and estado_input.data:
@@ -1157,7 +1437,11 @@ def formulario_facturacion():
                     id_estado = e_id
                     break
 
-        # Capturar método de pago seleccionado desde el formulario manual
+        if id_estado != 1:
+            flash('Regla comercial: La factura no puede ser emitida sin la confirmación de pago. Seleccione el estado "Pagada".', 'warning')
+            return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
+
+        # Capturar método de pago seleccionado
         metodo_input = request.form.get('id_metodo_pago', '1')
         try:
             id_metodo_pago = int(metodo_input)
@@ -1169,7 +1453,7 @@ def formulario_facturacion():
         precios = request.form.getlist('precio[]')
 
         if not prod_ids:
-            flash('Debe seleccionar al menos un producto para generar la factura.', 'warning')
+            flash('Debe seleccionar al menos un producto activo para generar la factura.', 'warning')
             return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
 
         items_validos = []
@@ -1185,7 +1469,8 @@ def formulario_facturacion():
                     cant = int(cant_str)
                     prec = float(prec_str)
 
-                    cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s;', (int(p_id),))
+                    # Bloqueo pesimista para concurrencia limpia
+                    cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE;', (int(p_id),))
                     prod_info = cursor.fetchone()
 
                     stock_real = (prod_info['stock'] if isinstance(prod_info, dict) else prod_info[1]) if prod_info else 0
@@ -1206,16 +1491,17 @@ def formulario_facturacion():
                     })
 
                 cursor.execute('''
-                    INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago, created_by, activo)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
                     RETURNING id;
-                ''', (numero, fecha, total_acumulado, id_cliente, id_estado, id_metodo_pago))
+                ''', (numero, fecha, total_acumulado, id_cliente, 1, id_metodo_pago, current_user.usuario))
 
                 nueva_fac = cursor.fetchone()
                 id_factura = nueva_fac['id'] if isinstance(nueva_fac, dict) else nueva_fac[0]
 
                 for item in items_validos:
-                    cursor.execute('UPDATE productos SET stock = stock - %s WHERE id = %s;', (item['cantidad'], item['id_producto']))
+                    cursor.execute('UPDATE productos SET stock = stock - %s, modified_by = %s WHERE id = %s;', 
+                                   (item['cantidad'], current_user.usuario, item['id_producto']))
                     cursor.execute('''
                         INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
                         VALUES (%s, %s, %s, %s, %s);
@@ -1223,14 +1509,14 @@ def formulario_facturacion():
 
                 conn.commit()
                 cursor.close()
-                flash('Factura registrada y stock actualizado con éxito.', 'success')
+                flash(f'Factura {numero} emitida y pagada con éxito. Stock descontado del catálogo.', 'success')
                 return redirect(url_for('facturacion'))
 
             except Exception as e:
                 conn.rollback()
                 error_msg = str(e)
                 if 'facturas_numero_key' in error_msg or 'llave duplicada' in error_msg or 'unique constraint' in error_msg.lower():
-                    flash(f'El número de factura "{numero}" ya se encuentra registrado. Por favor, asigna el número siguiente.', 'warning')
+                    flash(f'El número de factura "{numero}" ya se encuentra registrado. Asigne un nuevo número correlativo.', 'warning')
                 else:
                     flash(f'Error al procesar la factura: {e}', 'danger')
                 return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Nueva Factura", productos_lista=productos_bd, metodos_lista=metodos_bd)
@@ -1242,8 +1528,8 @@ def formulario_facturacion():
         form=form, 
         sistema=SISTEMA_INFO, 
         titulo="Nueva Factura", 
-        productos_lista=productos_bd,
-        metodos_lista=metodos_bd,
+        productos_lista=productos_bd, 
+        metodos_lista=metodos_bd, 
         detalles_guardados=[]
     )
 
@@ -1266,16 +1552,16 @@ def editar_factura(numero):
 
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM facturas WHERE numero = %s;', (numero,))
+        cursor.execute('SELECT * FROM facturas WHERE numero = %s AND activo = TRUE;', (numero,))
         factura = cursor.fetchone()
 
-        cursor.execute('SELECT id, nombre FROM clientes ORDER BY nombre ASC;')
+        cursor.execute('SELECT id, nombre FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
         clientes_bd = cursor.fetchall()
 
         cursor.execute('SELECT id, nombre FROM estados_factura ORDER BY id ASC;')
         estados_bd = cursor.fetchall()
 
-        cursor.execute('SELECT id, nombre, precio, stock FROM productos ORDER BY nombre ASC;')
+        cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE activo = TRUE ORDER BY nombre ASC;')
         productos_bd = [
             {
                 'id': p['id'] if isinstance(p, dict) else p[0],
@@ -1311,7 +1597,7 @@ def editar_factura(numero):
         conn.close()
 
     if not factura:
-        flash('Factura no encontrada.', 'warning')
+        flash('Factura no encontrada o dada de baja.', 'warning')
         return redirect(url_for('facturacion'))
 
     form = FacturacionForm()
@@ -1356,17 +1642,6 @@ def editar_factura(numero):
                     id_cliente = c_id
                     break
 
-        estado_input = getattr(form, 'estado', None)
-        id_estado = fac_id_estado
-        if estado_input and estado_input.data:
-            val_estado = str(estado_input.data).strip().capitalize()
-            for e in estados_bd:
-                e_nom = e['nombre'] if isinstance(e, dict) else e[1]
-                e_id = e['id'] if isinstance(e, dict) else e[0]
-                if e_nom == val_estado or str(e_id) == val_estado:
-                    id_estado = e_id
-                    break
-
         prod_ids = request.form.getlist('producto_id[]')
         cantidades = request.form.getlist('cantidad[]')
         precios = request.form.getlist('precio[]')
@@ -1394,19 +1669,20 @@ def editar_factura(numero):
             try:
                 cursor = conn.cursor()
 
-                # Revertir stock previo
+                # Revertir stock previo de forma atómica
                 cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
                 previos = cursor.fetchall()
                 for prev in previos:
                     prev_cant = prev['cantidad'] if isinstance(prev, dict) else prev[1]
                     prev_pid = prev['id_producto'] if isinstance(prev, dict) else prev[0]
-                    cursor.execute('UPDATE productos SET stock = stock + %s WHERE id = %s;', (prev_cant, prev_pid))
+                    cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
+                                   (prev_cant, current_user.usuario, prev_pid))
 
                 cursor.execute('DELETE FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
 
-                # Descontar nuevo inventario
+                # Validar y descontar nuevo inventario
                 for item in items_validos:
-                    cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s;', (item['id_producto'],))
+                    cursor.execute('SELECT nombre, stock FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE;', (item['id_producto'],))
                     prod_info = cursor.fetchone()
                     stock_disp = (prod_info['stock'] if isinstance(prod_info, dict) else prod_info[1]) if prod_info else 0
                     nom_prod = (prod_info['nombre'] if isinstance(prod_info, dict) else prod_info[0]) if prod_info else ''
@@ -1417,7 +1693,8 @@ def editar_factura(numero):
                         cursor.close()
                         return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Factura", productos_lista=productos_bd, detalles_guardados=detalles_bd)
 
-                    cursor.execute('UPDATE productos SET stock = stock - %s WHERE id = %s;', (item['cantidad'], item['id_producto']))
+                    cursor.execute('UPDATE productos SET stock = stock - %s, modified_by = %s WHERE id = %s;', 
+                                   (item['cantidad'], current_user.usuario, item['id_producto']))
                     cursor.execute('''
                         INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
                         VALUES (%s, %s, %s, %s, %s);
@@ -1425,13 +1702,13 @@ def editar_factura(numero):
 
                 cursor.execute('''
                     UPDATE facturas
-                    SET numero = %s, fecha = %s, monto = %s, id_cliente = %s, id_estado = %s
+                    SET numero = %s, fecha = %s, monto = %s, id_cliente = %s, id_estado = 1, modified_by = %s
                     WHERE id = %s;
-                ''', (nuevo_numero, fecha, monto_final, id_cliente, id_estado, fac_id))
+                ''', (nuevo_numero, fecha, monto_final, id_cliente, current_user.usuario, fac_id))
 
                 conn.commit()
                 cursor.close()
-                flash('Factura actualizada y stock ajustado correctamente.', 'success')
+                flash('Factura actualizada y stock recalculado correctamente.', 'success')
                 return redirect(url_for('facturacion'))
 
             except Exception as e:
@@ -1448,7 +1725,7 @@ def editar_factura(numero):
     return render_template('formulario_facturacion.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Factura", productos_lista=productos_bd, detalles_guardados=detalles_bd)
 
 
-# 4. ELIMINAR FACTURA (ADMIN)
+# 4. ELIMINAR / ANULAR FACTURA (SOFT DELETE CON REINTEGRO DE STOCK Y AUDITORÍA)
 @app.route('/facturacion/eliminar/<numero>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -1457,13 +1734,38 @@ def eliminar_factura(numero):
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM facturas WHERE numero = %s;', (numero,))
+            cursor.execute('SELECT id FROM facturas WHERE numero = %s AND activo = TRUE;', (numero,))
+            fac_row = cursor.fetchone()
+
+            if not fac_row:
+                flash('La factura no existe o ya fue anulada previamente.', 'warning')
+                cursor.close()
+                return redirect(url_for('facturacion'))
+
+            fac_id = fac_row['id'] if isinstance(fac_row, dict) else fac_row[0]
+
+            # 1. Revertir e ingresar el stock al catálogo
+            cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
+            detalles = cursor.fetchall()
+            for d in detalles:
+                pid = d['id_producto'] if isinstance(d, dict) else d[0]
+                cant = d['cantidad'] if isinstance(d, dict) else d[1]
+                cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
+                               (cant, current_user.usuario, pid))
+
+            # 2. Borrado lógico: Cambia estado a 3 (Anulada), activo = FALSE y modified_by
+            cursor.execute('''
+                UPDATE facturas 
+                SET activo = FALSE, id_estado = 3, modified_by = %s 
+                WHERE id = %s;
+            ''', (current_user.usuario, fac_id))
+
             conn.commit()
             cursor.close()
-            flash('Factura eliminada satisfactoriamente.', 'info')
+            flash(f'Factura {numero} anulada satisfactoriamente. Los artículos se reintegraron al stock disponible.', 'info')
         except Exception as e:
             conn.rollback()
-            flash(f'No se pudo eliminar la factura: {e}', 'danger')
+            flash(f'No se pudo anular la factura: {e}', 'danger')
         finally:
             conn.close()
 
@@ -1487,7 +1789,7 @@ def mis_facturas():
                 INNER JOIN clientes c ON f.id_cliente = c.id
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-                WHERE c.usuario_id = %s
+                WHERE c.usuario_id = %s AND f.activo = TRUE
                 ORDER BY f.fecha DESC, f.id DESC;
             ''', (int(current_user.id),))
             filas = cursor.fetchall()
@@ -1526,7 +1828,6 @@ def descargar_factura(id_factura):
     try:
         cursor = conn.cursor()
 
-        # Si es cliente estándar, solo puede ver sus facturas vinculadas por usuario_id
         if current_user.rol == 'usuario':
             cursor.execute('''
                 SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado, 
@@ -1632,30 +1933,40 @@ def cambiar_estado_factura(id_factura):
 
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT numero, id_estado FROM facturas WHERE id = %s;', (id_factura,))
+        cursor.execute('SELECT numero, id_estado FROM facturas WHERE id = %s AND activo = TRUE;', (id_factura,))
         factura = cursor.fetchone()
         if not factura:
-            flash('Factura no encontrada.', 'warning')
+            flash('Factura no encontrada o inactiva.', 'warning')
             cursor.close()
             return redirect(url_for('facturacion'))
 
         num_factura = factura['numero'] if isinstance(factura, dict) else factura[0]
 
+        # Si se anula (id_estado = 3), se devuelve el inventario
+        if nuevo_estado_id == 3:
+            cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (id_factura,))
+            detalles = cursor.fetchall()
+            for d in detalles:
+                pid = d['id_producto'] if isinstance(d, dict) else d[0]
+                cant = d['cantidad'] if isinstance(d, dict) else d[1]
+                cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
+                               (cant, current_user.usuario, pid))
+
         cursor.execute('''
             UPDATE facturas 
-            SET id_estado = %s 
+            SET id_estado = %s, modified_by = %s 
             WHERE id = %s;
-        ''', (nuevo_estado_id, id_factura))
+        ''', (nuevo_estado_id, current_user.usuario, id_factura))
 
         conn.commit()
         cursor.close()
 
         if nuevo_estado_id == 1:
-            flash(f'¡Pago confirmado! La factura {num_factura} fue marcada como PAGADA.', 'success')
+            flash(f'¡Cobro validado! La factura {num_factura} quedó registrada como PAGADA.', 'success')
         elif nuevo_estado_id == 3:
-            flash(f'La factura {num_factura} ha sido ANULADA.', 'info')
+            flash(f'La factura {num_factura} fue ANULADA y el stock reincorporado al catálogo.', 'info')
         else:
-            flash(f'Estado de la factura {num_factura} actualizado con éxito.', 'primary')
+            flash(f'Estado de la factura {num_factura} actualizado correctamente.', 'primary')
 
     except Exception as e:
         conn.rollback()
@@ -1666,7 +1977,7 @@ def cambiar_estado_factura(id_factura):
     return redirect(url_for('facturacion'))
 
 
-# 7. GESTIÓN DEL CARRITO EN SESIÓN Y FACTURACIÓN MÚLTIPLE
+# 7. GESTIÓN DEL CARRITO EN SESIÓN Y FACTURACIÓN DIRECTA PAGADA
 
 # 7.1 AGREGAR PRODUCTO AL CARRITO
 @app.route('/carrito/agregar/<int:id_producto>', methods=['POST'])
@@ -1686,12 +1997,12 @@ def agregar_al_carrito(id_producto):
 
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE id = %s;', (id_producto,))
+        cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE id = %s AND activo = TRUE;', (id_producto,))
         prod = cursor.fetchone()
         cursor.close()
 
         if not prod:
-            flash('Producto no encontrado.', 'warning')
+            flash('Producto no disponible o dado de baja.', 'warning')
             return redirect(url_for('productos'))
 
         nombre_prod = prod['nombre'] if isinstance(prod, dict) else prod[1]
@@ -1707,7 +2018,7 @@ def agregar_al_carrito(id_producto):
         nueva_cant = cant_actual + cantidad
 
         if nueva_cant > stock_prod:
-            flash(f'No puedes agregar {nueva_cant} unidades. Solo hay {stock_prod} en inventario.', 'warning')
+            flash(f'No es posible solicitar {nueva_cant} unidades. Stock disponible: {stock_prod}.', 'warning')
             return redirect(url_for('productos'))
 
         carrito[prod_id_str] = {
@@ -1730,7 +2041,7 @@ def agregar_al_carrito(id_producto):
         conn.close()
 
 
-# 7.2 ACTUALIZAR CANTIDAD (+, -, o número manual)
+# 7.2 ACTUALIZAR CANTIDAD (+, -, o manual)
 @app.route('/carrito/actualizar/<int:id_producto>', methods=['POST'])
 @login_required
 def actualizar_carrito(id_producto):
@@ -1751,7 +2062,7 @@ def actualizar_carrito(id_producto):
 
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT stock FROM productos WHERE id = %s;', (id_producto,))
+        cursor.execute('SELECT stock FROM productos WHERE id = %s AND activo = TRUE;', (id_producto,))
         prod = cursor.fetchone()
         cursor.close()
 
@@ -1791,7 +2102,7 @@ def actualizar_carrito(id_producto):
     return redirect(url_for('ver_carrito'))
 
 
-# 7.3 VER EL CARRITO CON MÉTODOS DE PAGO
+# 7.3 VER CARRITO
 @app.route('/carrito')
 @login_required
 def ver_carrito():
@@ -1835,7 +2146,7 @@ def eliminar_del_carrito(id_producto):
     return redirect(url_for('ver_carrito'))
 
 
-# 7.5 VACIAR TODO EL CARRITO
+# 7.5 VACIAR CARRITO
 @app.route('/carrito/vaciar', methods=['POST'])
 @login_required
 def vaciar_carrito():
@@ -1844,24 +2155,23 @@ def vaciar_carrito():
     return redirect(url_for('ver_carrito'))
 
 
-# 7.6 FINALIZAR COMPRA Y CREAR FACTURA MÚLTIPLE
+# 7.6 FINALIZAR COMPRA (EMISIÓN ESTRICTA: SOLO FACTURAS PAGADAS)
 @app.route('/carrito/finalizar-compra', methods=['POST'])
 @login_required
 def finalizar_compra():
     carrito = session.get('carrito', {})
     if not carrito:
-        flash('El carrito está vacío. Agrega productos antes de confirmar.', 'warning')
+        flash('El carrito está vacío. Agregue productos antes de continuar.', 'warning')
         return redirect(url_for('productos'))
 
-    # Recibir método de pago enviado desde el selector o tarjetas de pago
     metodo_pago_val = request.form.get('metodo_pago', '1')
     try:
         id_metodo_pago = int(metodo_pago_val)
     except ValueError:
         id_metodo_pago = 1
 
-    # Definir estado contable: Tarjeta (3) = Pagada (1); Efectivo (1) o Transferencia (2) = Pendiente (2)
-    id_estado_factura = 1 if id_metodo_pago == 3 else 2
+    # Regla: Las facturas emitidas por el portal comercial se consolidan como Pagadas (id_estado = 1)
+    id_estado_factura = 1 
 
     conn = obtener_conexion()
     if not conn:
@@ -1871,17 +2181,17 @@ def finalizar_compra():
     try:
         cursor = conn.cursor()
 
-        # 1. Obtener cliente_id asociado al usuario en sesión
-        cursor.execute('SELECT id FROM clientes WHERE usuario_id = %s LIMIT 1;', (int(current_user.id),))
+        # 1. Obtener cliente_id vinculado
+        cursor.execute('SELECT id FROM clientes WHERE usuario_id = %s AND activo = TRUE LIMIT 1;', (int(current_user.id),))
         cliente = cursor.fetchone()
         if not cliente:
-            flash('No se encontró su perfil de cliente asociado.', 'danger')
+            flash('No se encontró un perfil de cliente activo asociado a su cuenta.', 'danger')
             cursor.close()
             return redirect(url_for('productos'))
 
         id_cliente = cliente['id'] if isinstance(cliente, dict) else cliente[0]
 
-        # 2. Validar stock de cada producto en el carrito
+        # 2. Validar stock en tiempo real
         monto_total = 0.0
         items_a_procesar = []
 
@@ -1889,11 +2199,11 @@ def finalizar_compra():
             id_prod = int(prod_id_str)
             cant_solicitada = int(item['cantidad'])
 
-            cursor.execute('SELECT nombre, precio, stock FROM productos WHERE id = %s FOR UPDATE;', (id_prod,))
+            cursor.execute('SELECT nombre, precio, stock FROM productos WHERE id = %s AND activo = TRUE FOR UPDATE;', (id_prod,))
             prod_db = cursor.fetchone()
 
             if not prod_db:
-                flash(f'El producto "{item["nombre"]}" ya no está disponible.', 'danger')
+                flash(f'El producto "{item["nombre"]}" ya no está disponible en catálogo.', 'danger')
                 conn.rollback()
                 cursor.close()
                 return redirect(url_for('ver_carrito'))
@@ -1912,11 +2222,10 @@ def finalizar_compra():
             monto_total += subtotal_item
             items_a_procesar.append((id_prod, cant_solicitada, precio_real, subtotal_item))
 
-       # 3. Generar número de factura secuencial limpio y correlativo (FAC-YYYY-XXX)
+        # 3. Secuencial de Factura
         anio_actual = datetime.now().year
         prefijo = f"FAC-{anio_actual}-"
 
-        # Ordenar por el valor numérico real del sufijo, no por orden alfabético de texto
         cursor.execute('''
             SELECT numero 
             FROM facturas 
@@ -1926,11 +2235,9 @@ def finalizar_compra():
         ''', (f"{prefijo}%",))
 
         res_ultima = cursor.fetchone()
-        
         if res_ultima:
             num_str = res_ultima.get('numero') if isinstance(res_ultima, dict) else res_ultima[0]
             try:
-                # Extrae la parte numérica final (ej: de 'FAC-2026-008' toma 8)
                 ultimo_consecutivo = int(num_str.split('-')[-1])
                 siguiente_id = ultimo_consecutivo + 1
             except (ValueError, IndexError):
@@ -1940,36 +2247,36 @@ def finalizar_compra():
 
         numero_factura = f"{prefijo}{siguiente_id:03d}"
 
+        # 4. Insertar Factura Pagada
         cursor.execute('''
-            INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago)
-            VALUES (%s, CURRENT_DATE, %s, %s, %s, %s)
+            INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago, created_by, activo)
+            VALUES (%s, CURRENT_DATE, %s, %s, %s, %s, %s, TRUE)
             RETURNING id;
-        ''', (numero_factura, monto_total, id_cliente, id_estado_factura, id_metodo_pago))
+        ''', (numero_factura, monto_total, id_cliente, id_estado_factura, id_metodo_pago, current_user.usuario))
 
         res_fac = cursor.fetchone()
         id_factura = res_fac['id'] if isinstance(res_fac, dict) else res_fac[0]
-        
-        # 4. Insertar filas en detalle_facturas y descontar stock
+
+        # 5. Insertar Detalle y Descontar Stock con Auditoría
         for id_prod, cant, precio, subtotal in items_a_procesar:
             cursor.execute('''
                 INSERT INTO detalle_facturas (id_factura, id_producto, cantidad, precio_unitario, subtotal)
                 VALUES (%s, %s, %s, %s, %s);
             ''', (id_factura, id_prod, cant, precio, subtotal))
 
-            cursor.execute('UPDATE productos SET stock = stock - %s WHERE id = %s;', (cant, id_prod))
+            cursor.execute('UPDATE productos SET stock = stock - %s, modified_by = %s WHERE id = %s;', 
+                           (cant, current_user.usuario, id_prod))
 
         conn.commit()
         cursor.close()
 
-        # 5. Vaciar carrito de la sesión y redirigir
         session.pop('carrito', None)
-
-        flash(f'¡Compra confirmada con éxito! Factura {numero_factura} generada.', 'success')
+        flash(f'¡Pago confirmado exitosamente! Se emitió la factura {numero_factura}.', 'success')
         return redirect(url_for('mis_facturas'))
 
     except Exception as e:
         conn.rollback()
-        flash(f'Error al procesar la compra múltiple: {e}', 'danger')
+        flash(f'Error al procesar el pago y emitir la factura: {e}', 'danger')
         return redirect(url_for('ver_carrito'))
     finally:
         conn.close()

@@ -1,114 +1,135 @@
 {% extends "base.html" %}
 
+{% block title %}{{ titulo if titulo else "Nueva Factura" }} | {{ sistema.nombre_sistema }}{% endblock %}
+
 {% block content %}
 <div class="container my-4">
     <div class="row justify-content-center">
-        <div class="col-md-9">
-            <h3 class="mb-4 fw-bold text-dark">{{ titulo if titulo else "Nueva Factura" }}</h3>
-
-            <form method="POST" id="formFactura">
-                {{ form.hidden_tag() }}
-
-                <!-- Fila 1: Nº Factura y Cliente -->
-                <div class="row">
-                    <div class="col-12 col-md-4 mb-3">
-                        {{ form.numero.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.numero(class="form-control", placeholder="Ej: FAC-2026-026") }}
-                        {% for e in form.numero.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="col-12 col-md-8 mb-3">
-                        {{ form.cliente.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.cliente(class="form-select") }}
-                        {% for e in form.cliente.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
-                        {% endfor %}
-                    </div>
+        <div class="col-lg-10 col-xl-9">
+            <!-- Encabezado del Formulario -->
+            <div class="d-flex align-items-center justify-content-between mb-4">
+                <div>
+                    <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Gestión Comercial</span>
+                    <h3 class="fw-bold text-dark m-0">{{ titulo if titulo else "Nueva Factura" }}</h3>
                 </div>
+                <a href="{{ url_for('facturacion') }}" class="btn btn-outline-secondary btn-sm rounded-3">
+                    <i class="bi bi-arrow-left me-1"></i> Volver a facturación
+                </a>
+            </div>
 
-                <!-- Fila 2: Fecha, Estado y Método de Pago -->
-                <div class="row">
-                    <div class="col-12 col-md-4 mb-3">
-                        {{ form.fecha.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.fecha(class="form-control") }}
-                        {% for e in form.fecha.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
-                        {% endfor %}
-                    </div>
+            <!-- Tarjeta Principal del Formulario -->
+            <div class="card border-0 shadow-sm rounded-4 p-4">
+                <form method="POST" id="formFactura" novalidate>
+                    {{ form.hidden_tag() }}
 
-                    <div class="col-12 col-md-4 mb-3">
-                        {{ form.estado.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.estado(class="form-select") }}
-                        {% for e in form.estado.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="col-12 col-md-4 mb-3">
-                        <label for="id_metodo_pago" class="form-label text-dark fw-semibold">Forma de Pago</label>
-                        <select name="id_metodo_pago" id="id_metodo_pago" class="form-select">
-                            {% for m in metodos_lista %}
-                                <option value="{{ m['id'] if m is mapping else m[0] }}">
-                                    {{ m['nombre'] if m is mapping else m[1] }}
-                                </option>
+                    <!-- Fila 1: Nº Factura y Cliente -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-4">
+                            {{ form.numero.label(class="form-label text-dark fw-semibold") }}
+                            {{ form.numero(class="form-control" + (" is-invalid" if form.numero.errors else ""), placeholder="Ej: FAC-2026-026") }}
+                            {% for e in form.numero.errors %}
+                                <div class="invalid-feedback d-block">{{ e }}</div>
                             {% endfor %}
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Recuadro de Productos Dinámicos -->
-                <div class="card p-3 my-4 bg-light border shadow-sm rounded-3">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div>
-                            <label class="form-label text-dark fw-bold m-0 fs-5">Productos de la Factura</label>
-                            <div class="small text-muted">Ajuste cantidad o precio unitario según requiera. El sistema restringe excesos de stock.</div>
                         </div>
-                        <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" onclick="agregarFila()">
-                            + Añadir Producto
-                        </button>
+
+                        <div class="col-12 col-md-8">
+                            {{ form.cliente.label(class="form-label text-dark fw-semibold") }}
+                            {{ form.cliente(class="form-select" + (" is-invalid" if form.cliente.errors else "")) }}
+                            {% for e in form.cliente.errors %}
+                                <div class="invalid-feedback d-block">{{ e }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <div class="table-responsive">
-                        <table class="table table-bordered bg-white align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 38%;">Nombre del Producto</th>
-                                    <th style="width: 14%;" class="text-center">Stock Disp.</th>
-                                    <th style="width: 16%;" class="text-end">Precio ($)</th>
-                                    <th style="width: 14%;" class="text-center">Cantidad</th>
-                                    <th style="width: 14%;" class="text-end">Subtotal ($)</th>
-                                    <th style="width: 4%;" class="text-center"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="cuerpoTablaProductos">
-                                <!-- Filas dinámicas -->
-                            </tbody>
-                        </table>
+                    <!-- Fila 2: Fecha, Estado de Pago y Método de Pago -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-12 col-md-4">
+                            {{ form.fecha.label(class="form-label text-dark fw-semibold") }}
+                            {{ form.fecha(class="form-control" + (" is-invalid" if form.fecha.errors else "")) }}
+                            {% for e in form.fecha.errors %}
+                                <div class="invalid-feedback d-block">{{ e }}</div>
+                            {% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-4">
+                            {{ form.estado.label(class="form-label text-dark fw-semibold") }}
+                            {{ form.estado(class="form-select bg-light fw-medium text-success border-success-subtle" + (" is-invalid" if form.estado.errors else "")) }}
+                            {% for e in form.estado.errors %}
+                                <div class="invalid-feedback d-block">{{ e }}</div>
+                            {% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-4">
+                            <label for="id_metodo_pago" class="form-label text-dark fw-semibold">Método de Pago</label>
+                            <select name="id_metodo_pago" id="id_metodo_pago" class="form-select">
+                                {% for m in metodos_lista %}
+                                    <option value="{{ m['id'] if m is mapping else m[0] }}">
+                                        {{ m['nombre'] if m is mapping else m[1] }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Monto Total Calculado -->
-                <div class="mb-4">
-                    {{ form.monto.label(class="form-label text-dark fw-semibold") }}
-                    {{ form.monto(class="form-control text-end fw-bold fs-5", id="campoMonto", readonly=True) }}
-                    {% for e in form.monto.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- Panel de Productos de la Factura -->
+                    <div class="card border-0 bg-light rounded-4 p-3 mb-4">
+                        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2 mb-3">
+                            <div>
+                                <h5 class="fw-bold text-dark m-0">Detalle de Productos</h5>
+                                <small class="text-muted">Añada los ítems a facturar. El sistema valida el stock disponible automáticamente.</small>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-sm fw-semibold rounded-3 px-3 shadow-sm" onclick="agregarFila()">
+                                <i class="bi bi-plus-lg me-1"></i> Añadir Producto
+                            </button>
+                        </div>
 
-                <!-- Botones Guardar / Cancelar -->
-                <div class="d-flex gap-2">
-                    {{ form.submit(class="btn btn-primary px-4") }}
-                    <a href="{{ url_for('facturacion') }}" class="btn btn-secondary px-4">Cancelar</a>
-                </div>
-            </form>
+                        <div class="table-responsive rounded-3 border bg-white overflow-hidden">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light text-nowrap">
+                                    <tr>
+                                        <th style="width: 40%;" class="ps-3">Producto Activo</th>
+                                        <th style="width: 12%;" class="text-center">Stock</th>
+                                        <th style="width: 18%;" class="text-end">Precio ({{ sistema.moneda }})</th>
+                                        <th style="width: 12%;" class="text-center">Cantidad</th>
+                                        <th style="width: 14%;" class="text-end">Subtotal ({{ sistema.moneda }})</th>
+                                        <th style="width: 4%;" class="text-center pe-3"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cuerpoTablaProductos">
+                                    <!-- Filas dinámicas generadas con JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Resumen del Total -->
+                    <div class="row justify-content-end mb-4">
+                        <div class="col-12 col-sm-6 col-md-5 col-lg-4">
+                            <div class="card border-0 bg-light rounded-3 p-3 text-end">
+                                <span class="text-muted small fw-semibold text-uppercase tracking-wider">Total a Cobrar</span>
+                                <div class="d-flex align-items-center justify-content-end gap-1 mt-1">
+                                    <span class="fs-4 fw-bold text-dark">$</span>
+                                    {{ form.monto(class="form-control form-control-lg border-0 bg-transparent text-end fw-bold text-dark fs-3 p-0", id="campoMonto", readonly=True) }}
+                                </div>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill align-self-end mt-2 px-2 py-1 small">
+                                    <i class="bi bi-check-circle-fill me-1"></i> Pago Inmediato Requerido
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Botones de Acción -->
+                    <div class="d-flex align-items-center gap-2 pt-3 border-top">
+                        {{ form.submit(class="btn btn-primary fw-semibold px-4 rounded-3 shadow-sm") }}
+                        <a href="{{ url_for('facturacion') }}" class="btn btn-outline-secondary px-4 rounded-3">Cancelar</a>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Bloques de datos JSON puros -->
+<!-- Bloques de datos JSON seguros -->
 <script id="data-catalogo-json" type="application/json">
 {{ productos_lista | tojson }}
 </script>
@@ -117,7 +138,6 @@
 {{ (detalles_guardados or []) | tojson }}
 </script>
 
-<!-- Código JavaScript -->
 <script>
 const catalogoProductos = JSON.parse(document.getElementById('data-catalogo-json').textContent);
 const itemsPrecargados = JSON.parse(document.getElementById('data-detalles-json').textContent);
@@ -126,7 +146,7 @@ function crearFila(idSel = "", cant = 1, prec = null, stockMax = null) {
     const tbody = document.getElementById('cuerpoTablaProductos');
     const tr = document.createElement('tr');
 
-    let opciones = '<option value="">Seleccione un producto</option>';
+    let opciones = '<option value="">Seleccione un producto del catálogo</option>';
     let precioAsignado = prec;
     let stockAsignado = stockMax;
 
@@ -148,25 +168,27 @@ function crearFila(idSel = "", cant = 1, prec = null, stockMax = null) {
     if (stockAsignado === null) stockAsignado = 0;
 
     tr.innerHTML = `
-        <td>
-            <select name="producto_id[]" class="form-select form-select-sm" required onchange="cambioDeProducto(this)">
+        <td class="ps-3">
+            <select name="producto_id[]" class="form-select form-select-sm rounded-2" required onchange="cambioDeProducto(this)">
                 ${opciones}
             </select>
         </td>
         <td class="text-center">
-            <span class="badge ${stockAsignado > 0 ? 'bg-success' : 'bg-danger'} badge-stock">${stockAsignado}</span>
+            <span class="badge ${stockAsignado > 0 ? 'bg-success' : 'bg-danger'} rounded-pill badge-stock px-2 py-1">${stockAsignado}</span>
         </td>
         <td>
-            <input type="number" step="0.01" min="0" name="precio[]" class="form-control form-control-sm text-end inp-precio" value="${parseFloat(precioAsignado).toFixed(2)}" oninput="actualizarSuma()">
+            <input type="number" step="0.01" min="0" name="precio[]" class="form-control form-control-sm text-end rounded-2 inp-precio" value="${parseFloat(precioAsignado).toFixed(2)}" oninput="actualizarSuma()">
         </td>
         <td>
-            <input type="number" name="cantidad[]" class="form-control form-control-sm text-center inp-cantidad" min="1" max="${stockAsignado || 1}" value="${cant}" required oninput="limitarStock(this)">
+            <input type="number" name="cantidad[]" class="form-control form-control-sm text-center rounded-2 inp-cantidad" min="1" max="${stockAsignado || 1}" value="${cant}" required oninput="limitarStock(this)">
         </td>
         <td>
-            <input type="text" class="form-control form-control-sm text-end inp-subtotal fw-semibold" value="${(cant * precioAsignado).toFixed(2)}" readonly>
+            <input type="text" class="form-control form-control-sm text-end rounded-2 inp-subtotal fw-semibold bg-light" value="${(cant * precioAsignado).toFixed(2)}" readonly>
         </td>
-        <td class="text-center">
-            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="quitarFila(this)">✕</button>
+        <td class="text-center pe-3">
+            <button type="button" class="btn btn-sm btn-outline-danger border-0 rounded-2 py-1 px-2" title="Eliminar ítem" onclick="quitarFila(this)">
+                <i class="bi bi-trash"></i>
+            </button>
         </td>
     `;
     tbody.appendChild(tr);
@@ -188,7 +210,7 @@ function cambioDeProducto(selectElem) {
     const inpCantidad = tr.querySelector('.inp-cantidad');
 
     badgeStock.textContent = stock;
-    badgeStock.className = stock > 0 ? 'badge bg-success badge-stock' : 'badge bg-danger badge-stock';
+    badgeStock.className = stock > 0 ? 'badge bg-success rounded-pill badge-stock px-2 py-1' : 'badge bg-danger rounded-pill badge-stock px-2 py-1';
 
     inpPrecio.value = precio.toFixed(2);
     inpCantidad.setAttribute('max', stock > 0 ? stock : 1);
@@ -217,7 +239,6 @@ function limitarStock(inputCant) {
 
     if (cant > maxStock) {
         inputCant.value = maxStock;
-        alert("No puede superar el stock disponible de " + maxStock + " unidades.");
     }
     actualizarSuma();
 }
@@ -227,8 +248,6 @@ function quitarFila(btn) {
     if (tbody.children.length > 1) {
         btn.closest('tr').remove();
         actualizarSuma();
-    } else {
-        alert("La factura debe tener al menos un producto.");
     }
 }
 
@@ -246,6 +265,26 @@ function actualizarSuma() {
         campoMonto.value = granTotal.toFixed(2);
     }
 }
+
+// Validación antes de enviar el formulario
+document.getElementById('formFactura').addEventListener('submit', function(e) {
+    const filas = document.querySelectorAll('#cuerpoTablaProductos tr');
+    let tieneProductosValidos = false;
+
+    filas.forEach(f => {
+        const select = f.querySelector('select[name="producto_id[]"]');
+        if (select && select.value !== '') {
+            tieneProductosValidos = true;
+        }
+    });
+
+    const total = parseFloat(document.getElementById('campoMonto').value) || 0.0;
+
+    if (!tieneProductosValidos || total <= 0) {
+        e.preventDefault();
+        window.alert('Debe agregar al menos un producto activo con precio mayor a 0 para emitir la factura.');
+    }
+});
 
 window.addEventListener('DOMContentLoaded', () => {
     if (itemsPrecargados.length > 0) {

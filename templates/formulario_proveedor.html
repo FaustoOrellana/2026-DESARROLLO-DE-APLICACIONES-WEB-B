@@ -1,67 +1,84 @@
 {% extends "base.html" %}
 
+{% block title %}{{ titulo if titulo else "Formulario de Proveedor" }} | {{ sistema.nombre_sistema }}{% endblock %}
+
 {% block content %}
 <div class="container my-4">
     <div class="row justify-content-center">
-        <div class="col-md-8">
-            <h3 class="mb-4">{{ titulo if titulo else "Formulario de Proveedor" }}</h3>
-
-            <form method="POST">
-                {{ form.hidden_tag() }}
-
-                <!-- Empresa / Razón Social -->
-                <div class="mb-3">
-                    {{ form.nombre.label(class="form-label") }}
-                    {{ form.nombre(class="form-control") }}
-                    {% for e in form.nombre.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
+        <div class="col-md-8 col-lg-7">
+            <!-- Encabezado del Formulario -->
+            <div class="d-flex align-items-center justify-content-between mb-4">
+                <div>
+                    <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Cadena de Suministro</span>
+                    <h3 class="fw-bold text-dark m-0">{{ titulo if titulo else "Formulario de Proveedor" }}</h3>
                 </div>
+                <a href="{{ url_for('proveedores') }}" class="btn btn-outline-secondary btn-sm rounded-3">
+                    <i class="bi bi-arrow-left me-1"></i> Volver al listado
+                </a>
+            </div>
 
-                <!-- Contacto -->
-                <div class="mb-3">
-                    {{ form.contacto.label(class="form-label") }}
-                    {{ form.contacto(class="form-control") }}
-                    {% for e in form.contacto.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+            <!-- Tarjeta del Formulario -->
+            <div class="card border-0 shadow-sm rounded-4 p-4">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
 
-                <!-- Teléfono -->
-                <div class="mb-3">
-                    {{ form.telefono.label(class="form-label") }}
-                    {{ form.telefono(class="form-control") }}
-                    {% for e in form.telefono.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- Empresa / Razón Social -->
+                    <div class="mb-3">
+                        {{ form.nombre.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.nombre(class="form-control" + (" is-invalid" if form.nombre.errors else ""), placeholder="Ej: TechDistribution del Ecuador S.A.") }}
+                        {% for e in form.nombre.errors %}
+                            <div class="invalid-feedback d-block">{{ e }}</div>
+                        {% endfor %}
+                    </div>
 
-                <!-- Categoría -->
-                <div class="mb-3">
-                    {{ form.categoria.label(class="form-label") }}
-                    {{ form.categoria(class="form-select") }}
-                    {% for e in form.categoria.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
+                    <!-- Persona de Contacto -->
+                    <div class="mb-3">
+                        {{ form.contacto.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.contacto(class="form-control" + (" is-invalid" if form.contacto.errors else ""), placeholder="Ej: Ing. Carlos Mendoza") }}
+                        {% for e in form.contacto.errors %}
+                            <div class="invalid-feedback d-block">{{ e }}</div>
+                        {% endfor %}
+                    </div>
 
-                <!-- Ciudad (Opcional según esquema de PostgreSQL) -->
-                {% if form.id_ciudad %}
-                <div class="mb-3">
-                    {{ form.id_ciudad.label(class="form-label") }}
-                    {{ form.id_ciudad(class="form-select") }}
-                    {% for e in form.id_ciudad.errors %}
-                        <div class="text-danger small mt-1">{{ e }}</div>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                    <!-- Fila Teléfono y Categoría -->
+                    <div class="row g-3 mb-3">
+                        <!-- Teléfono -->
+                        <div class="col-sm-6">
+                            {{ form.telefono.label(class="form-label text-dark fw-semibold") }}
+                            {{ form.telefono(class="form-control" + (" is-invalid" if form.telefono.errors else ""), placeholder="Ej: 072987654 / 0987654321") }}
+                            {% for e in form.telefono.errors %}
+                                <div class="invalid-feedback d-block">{{ e }}</div>
+                            {% endfor %}
+                        </div>
 
-                <!-- Botones de Acción -->
-                <div class="d-flex gap-2">
-                    {{ form.submit(class="btn btn-primary") }}
-                    <a href="{{ url_for('proveedores') }}" class="btn btn-secondary">Cancelar</a>
-                </div>
-            </form>
+                        <!-- Categoría Principal -->
+                        <div class="col-sm-6">
+                            {{ form.categoria.label(class="form-label text-dark fw-semibold") }}
+                            {{ form.categoria(class="form-select" + (" is-invalid" if form.categoria.errors else "")) }}
+                            {% for e in form.categoria.errors %}
+                                <div class="invalid-feedback d-block">{{ e }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Ciudad (Opcional) -->
+                    {% if form.id_ciudad %}
+                    <div class="mb-4">
+                        {{ form.id_ciudad.label(class="form-label text-dark fw-semibold") }}
+                        {{ form.id_ciudad(class="form-select" + (" is-invalid" if form.id_ciudad.errors else "")) }}
+                        {% for e in form.id_ciudad.errors %}
+                            <div class="invalid-feedback d-block">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Botones de Acción -->
+                    <div class="d-flex align-items-center gap-2 pt-2 border-top">
+                        {{ form.submit(class="btn btn-primary fw-semibold px-4 rounded-3 shadow-sm") }}
+                        <a href="{{ url_for('proveedores') }}" class="btn btn-outline-secondary px-4 rounded-3">Cancelar</a>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>

@@ -21,6 +21,13 @@
     <!-- Estilos personalizados -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            letter-spacing: -0.01em;
+        }
+    </style>
+    
     {% block extra_css %}{% endblock %}
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
@@ -28,29 +35,29 @@
     <!-- Barra de navegación modular -->
     {% include "components/navbar.html" %}
 
-    <!-- Contenedor principal adaptable -->
-    <main class="{% block main_container_class %}container{% endblock %} py-4 py-md-5 flex-grow-1">
+    <!-- Contenedor principal adaptable con holgura para tablas y dashboards -->
+    <main class="{% block main_container_class %}container-xl{% endblock %} py-4 py-md-5 flex-grow-1">
         
         <!-- Bloque para mostrar mensajes Flash adaptable -->
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 <div class="row justify-content-center mb-4">
-                    <div class="col-12 col-md-10 col-lg-8">
+                    <div class="col-12 col-md-11 col-lg-9">
                         {% for category, message in messages %}
                             {# Normalizar categorías de Flask a Bootstrap #}
                             {% set cat = 'danger' if category in ['error', 'danger'] else ('warning' if category == 'warning' else ('success' if category == 'success' else 'info')) %}
-                            <div class="alert alert-{{ cat }} alert-dismissible fade show shadow-sm border-0 rounded-3 d-flex align-items-center" role="alert">
+                            <div class="alert alert-{{ cat }} alert-dismissible fade show shadow-sm border-0 rounded-4 d-flex align-items-center p-3 mb-2" role="alert">
                                 {% if cat == 'danger' %}
-                                    <i class="bi bi-exclamation-octagon-fill me-2 fs-5 flex-shrink-0"></i>
+                                    <i class="bi bi-exclamation-octagon-fill me-2 fs-5 flex-shrink-0 text-danger"></i>
                                 {% elif cat == 'warning' %}
-                                    <i class="bi bi-exclamation-triangle-fill me-2 fs-5 flex-shrink-0"></i>
+                                    <i class="bi bi-exclamation-triangle-fill me-2 fs-5 flex-shrink-0 text-warning"></i>
                                 {% elif cat == 'success' %}
-                                    <i class="bi bi-check-circle-fill me-2 fs-5 flex-shrink-0"></i>
+                                    <i class="bi bi-check-circle-fill me-2 fs-5 flex-shrink-0 text-success"></i>
                                 {% else %}
-                                    <i class="bi bi-info-circle-fill me-2 fs-5 flex-shrink-0"></i>
+                                    <i class="bi bi-info-circle-fill me-2 fs-5 flex-shrink-0 text-info"></i>
                                 {% endif %}
                                 
-                                <div class="flex-grow-1">
+                                <div class="flex-grow-1 fw-medium small">
                                     {{ message }}
                                 </div>
                                 
@@ -73,6 +80,28 @@
 
     <!-- Bootstrap 5.3.3 JS Bundle con Popper incluido -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Script utilitario global: auto-dismiss de alertas de éxito y soporte CSRF para fetch -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Auto-cierre suave de alertas de éxito e informativas tras 5 segundos
+            const autoAlerts = document.querySelectorAll('.alert-success, .alert-info');
+            autoAlerts.forEach(function(alertElem) {
+                setTimeout(function() {
+                    const bsAlert = bootstrap.Alert.getOrCreateInstance(alertElem);
+                    if (bsAlert) {
+                        bsAlert.close();
+                    }
+                }, 5000);
+            });
+
+            // Configurar CSRF Token global para peticiones asíncronas
+            const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+            if (csrfTokenMeta) {
+                window.CSRF_TOKEN = csrfTokenMeta.getAttribute('content');
+            }
+        });
+    </script>
     
     <!-- Bloque para scripts específicos de cada página -->
     {% block extra_js %}{% endblock %}

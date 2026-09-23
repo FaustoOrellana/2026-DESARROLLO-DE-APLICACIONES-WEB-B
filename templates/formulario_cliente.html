@@ -1,48 +1,60 @@
 {% extends "base.html" %}
 
+{% block title %}{{ titulo if titulo else "Formulario de Cliente" }} | {{ sistema.nombre_sistema }}{% endblock %}
+
 {% block content %}
 <div class="container my-4">
     <div class="row justify-content-center">
-        <div class="col-md-7">
-            <h3 class="mb-4 fw-bold text-dark">{{ titulo if titulo else "Formulario de Cliente" }}</h3>
+        <div class="col-md-8 col-lg-7">
+            <!-- Encabezado del Formulario -->
+            <div class="d-flex align-items-center justify-content-between mb-4">
+                <div>
+                    <span class="text-success fw-bold text-uppercase tracking-wider small d-block">Directorio Empresarial</span>
+                    <h3 class="fw-bold text-dark m-0">{{ titulo if titulo else "Formulario de Cliente" }}</h3>
+                </div>
+                <a href="{{ url_for('clientes') }}" class="btn btn-outline-secondary btn-sm rounded-3">
+                    <i class="bi bi-arrow-left me-1"></i> Volver al listado
+                </a>
+            </div>
 
-            <div class="card border-0 shadow-sm rounded-3 p-4">
-                <form method="POST">
+            <!-- Tarjeta del Formulario -->
+            <div class="card border-0 shadow-sm rounded-4 p-4">
+                <form method="POST" novalidate>
                     {{ form.hidden_tag() }}
 
-                    <!-- Nombre -->
+                    <!-- Nombre / Razón Social -->
                     <div class="mb-3">
                         {{ form.nombre.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.nombre(class="form-control", placeholder="Ej: Corporación Soluciones TI") }}
+                        {{ form.nombre(class="form-control" + (" is-invalid" if form.nombre.errors else ""), placeholder="Ej: Corporación Soluciones TI S.A.") }}
                         {% for e in form.nombre.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
+                            <div class="invalid-feedback d-block">{{ e }}</div>
                         {% endfor %}
                     </div>
 
                     <!-- RUC / Cédula -->
                     <div class="mb-3">
                         {{ form.ruc.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.ruc(class="form-control", placeholder="Ej: 0701234567001") }}
+                        {{ form.ruc(class="form-control" + (" is-invalid" if form.ruc.errors else ""), placeholder="Ej: 0701234567001", maxlength="13") }}
                         {% for e in form.ruc.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
+                            <div class="invalid-feedback d-block">{{ e }}</div>
                         {% endfor %}
                     </div>
 
                     <!-- Teléfono -->
                     <div class="mb-3">
                         {{ form.telefono.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.telefono(class="form-control", placeholder="Ej: 0991234567") }}
+                        {{ form.telefono(class="form-control" + (" is-invalid" if form.telefono.errors else ""), placeholder="Ej: 0991234567") }}
                         {% for e in form.telefono.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
+                            <div class="invalid-feedback d-block">{{ e }}</div>
                         {% endfor %}
                     </div>
 
                     <!-- Correo Electrónico -->
                     <div class="mb-3">
                         {{ form.email.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.email(class="form-control", placeholder="cliente@correo.com") }}
+                        {{ form.email(class="form-control" + (" is-invalid" if form.email.errors else ""), placeholder="cliente@correo.com") }}
                         {% for e in form.email.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
+                            <div class="invalid-feedback d-block">{{ e }}</div>
                         {% endfor %}
                     </div>
 
@@ -50,17 +62,17 @@
                     {% if form.id_ciudad %}
                     <div class="mb-4">
                         {{ form.id_ciudad.label(class="form-label text-dark fw-semibold") }}
-                        {{ form.id_ciudad(class="form-select") }}
+                        {{ form.id_ciudad(class="form-select" + (" is-invalid" if form.id_ciudad.errors else "")) }}
                         {% for e in form.id_ciudad.errors %}
-                            <div class="text-danger small mt-1">{{ e }}</div>
+                            <div class="invalid-feedback d-block">{{ e }}</div>
                         {% endfor %}
                     </div>
                     {% endif %}
 
-                    <!-- Botones -->
-                    <div class="d-flex gap-2">
-                        {{ form.submit(class="btn btn-primary px-4") }}
-                        <a href="{{ url_for('clientes') }}" class="btn btn-secondary px-4">Cancelar</a>
+                    <!-- Acciones / Botones -->
+                    <div class="d-flex align-items-center gap-2 pt-2 border-top">
+                        {{ form.submit(class="btn btn-success fw-semibold px-4 rounded-3 shadow-sm") }}
+                        <a href="{{ url_for('clientes') }}" class="btn btn-outline-secondary px-4 rounded-3">Cancelar</a>
                     </div>
                 </form>
             </div>

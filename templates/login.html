@@ -3,63 +3,92 @@
 {% block title %}Iniciar Sesión | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-11 col-sm-8 col-md-6 col-lg-5">
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-primary text-white text-center py-3">
-                <h4 class="mb-0"><i class="bi bi-box-arrow-in-right me-2"></i>Iniciar Sesión</h4>
+<div class="row justify-content-center mt-4 mb-5">
+    <div class="col-11 col-sm-9 col-md-7 col-lg-5 col-xl-4">
+        <!-- Tarjeta de Login -->
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden bg-white">
+            <div class="card-header bg-primary text-white text-center py-4 border-0">
+                <div class="rounded-circle bg-white bg-opacity-10 d-inline-flex p-3 mb-2">
+                    <i class="bi bi-shield-lock-fill fs-2"></i>
+                </div>
+                <h4 class="fw-bold mb-0">Iniciar Sesión</h4>
+                <small class="text-white-50">Acceso al portal corporativo</small>
             </div>
+
             <div class="card-body p-4">
                 <form method="POST" novalidate>
                     {{ form.hidden_tag() }}
 
                     <!-- Campo Identificador (Usuario, Cédula o Correo) -->
                     <div class="mb-3">
-                        <label class="form-label fw-bold">Usuario, Cédula o Correo</label>
-                        {{ form.usuario(class="form-control" + (" is-invalid" if form.usuario.errors else ""), placeholder="Ingrese su usuario, cédula o correo", autocomplete="username") }}
+                        <label class="form-label text-dark fw-semibold small">Usuario, Cédula o Correo</label>
+                        {{ form.usuario(class="form-control rounded-3" + (" is-invalid" if form.usuario.errors else ""), placeholder="Ej: admin, 0701234567 o usuario@correo.com", autocomplete="username") }}
                         {% for error in form.usuario.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
+                            <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
 
-                    <!-- Campo Contraseña -->
+                    <!-- Campo Contraseña con botón de visualización (Ojito) -->
                     <div class="mb-3">
-                        {{ form.password.label(class="form-label fw-bold") }}
-                        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), placeholder="Ingrese su contraseña", autocomplete="current-password") }}
+                        {{ form.password.label(class="form-label text-dark fw-semibold small") }}
+                        <div class="input-group has-validation">
+                            {{ form.password(class="form-control rounded-start-3" + (" is-invalid" if form.password.errors else ""), id="inputPassword", placeholder="Ingrese su contraseña", autocomplete="current-password") }}
+                            <button type="button" class="btn btn-outline-secondary rounded-end-3 px-3 d-flex align-items-center" id="btnTogglePassword" onclick="togglePasswordVisibility()" title="Mostrar u ocultar contraseña">
+                                <i class="bi bi-eye" id="iconoOjito"></i>
+                            </button>
+                        </div>
                         {% for error in form.password.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
+                            <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
 
                     <!-- Campo CAPTCHA -->
-                    <div class="mb-3">
-                        {{ form.captcha.label(class="form-label fw-bold") }}
+                    <div class="mb-4">
+                        {{ form.captcha.label(class="form-label text-dark fw-semibold small") }}
                         <div class="d-flex align-items-center gap-2 mb-2">
-                            <img id="imgCaptcha" src="{{ url_for('captcha_image') }}" alt="Código CAPTCHA" class="border rounded shadow-sm">
-                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="recargarCaptcha()" title="Generar otro código">
+                            <img id="imgCaptcha" src="{{ url_for('captcha_image') }}" alt="Código CAPTCHA" class="border rounded-3 shadow-sm bg-light" style="height: 40px; object-fit: contain;">
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-3 px-2 py-1" onclick="recargarCaptcha()" title="Generar otro código">
                                 <i class="bi bi-arrow-clockwise"></i> Recargar
                             </button>
                         </div>
-                        {{ form.captcha(class="form-control" + (" is-invalid" if form.captcha.errors else ""), placeholder="Ingrese el texto de la imagen", autocomplete="off") }}
+                        {{ form.captcha(class="form-control rounded-3" + (" is-invalid" if form.captcha.errors else ""), placeholder="Ingrese el texto de la imagen", autocomplete="off") }}
                         {% for error in form.captcha.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
+                            <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
 
                     <!-- Botón Enviar -->
-                    <div class="d-grid gap-2 mt-4">
-                        {{ form.submit(class="btn btn-primary") }}
+                    <div class="d-grid gap-2">
+                        {{ form.submit(class="btn btn-primary fw-semibold py-2 rounded-3 shadow-sm") }}
                     </div>
                 </form>
             </div>
-            <div class="card-footer text-center py-3 bg-light">
-                <small class="text-muted">¿No tiene cuenta? <a href="{{ url_for('registro') }}" class="text-decoration-none fw-bold">Regístrese aquí</a></small>
+
+            <div class="card-footer text-center py-3 bg-light border-0">
+                <small class="text-muted">¿No tiene una cuenta? <a href="{{ url_for('registro') }}" class="text-primary text-decoration-none fw-bold">Regístrese aquí</a></small>
             </div>
         </div>
     </div>
 </div>
 
 <script>
+// Función para alternar visibilidad de contraseña
+function togglePasswordVisibility() {
+    const passwordInput = document.getElementById('inputPassword');
+    const icono = document.getElementById('iconoOjito');
+
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        icono.classList.remove('bi-eye');
+        icono.classList.add('bi-eye-slash');
+    } else {
+        passwordInput.type = 'password';
+        icono.classList.remove('bi-eye-slash');
+        icono.classList.add('bi-eye');
+    }
+}
+
+// Función para recargar la imagen de CAPTCHA
 function recargarCaptcha() {
     const img = document.getElementById('imgCaptcha');
     img.src = "{{ url_for('captcha_image') }}?" + new Date().getTime();

@@ -8,31 +8,50 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { 
-            background-color: #f8f9fa; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #f4f6f9; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #2c3e50;
         }
         .invoice-card { 
-            background: #fff; 
-            max-width: 800px; 
+            background: #ffffff; 
+            max-width: 850px; 
             margin: 30px auto; 
-            padding: 40px; 
+            padding: 45px; 
             border-radius: 12px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); 
+        }
+        .badge-paid {
+            background-color: #d1e7dd;
+            color: #0f5132;
+            border: 1px solid #a3cfbb;
+        }
+        .badge-void {
+            background-color: #f8d7da;
+            color: #842029;
+            border: 1px solid #f5c2c7;
         }
         @media print {
             body { 
-                background-color: #fff; 
+                background-color: #ffffff !important; 
+                color: #000000 !important;
             }
             .no-print { 
                 display: none !important; 
             }
             .invoice-card { 
-                box-shadow: none; 
-                margin: 0; 
-                padding: 0; 
-                width: 100%; 
-                max-width: 100%; 
+                box-shadow: none !important; 
+                margin: 0 !important; 
+                padding: 10px !important; 
+                width: 100% !important; 
+                max-width: 100% !important; 
                 border: none !important; 
+            }
+            table {
+                page-break-inside: auto;
+            }
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
             }
             * {
                 -webkit-print-color-adjust: exact !important;
@@ -44,9 +63,9 @@
 <body>
 
 <div class="container">
-    <!-- Barra de acciones superior (no se imprime) -->
+    <!-- Barra de acciones superior (excluida de impresión) -->
     <div class="text-center my-4 no-print">
-        <button onclick="window.print();" class="btn btn-primary px-4 py-2 me-2 rounded-3 shadow-sm">
+        <button onclick="window.print();" class="btn btn-primary px-4 py-2 me-2 rounded-3 shadow-sm fw-semibold">
             <i class="bi bi-printer-fill me-1"></i> Imprimir / Guardar como PDF
         </button>
         <button onclick="window.close();" class="btn btn-outline-secondary px-4 py-2 rounded-3">
@@ -56,45 +75,60 @@
 
     <!-- Comprobante Fiscal -->
     <div class="invoice-card border">
-        <!-- Cabecera con Logotipo -->
+        <!-- Cabecera Corporativa con Logotipo -->
         <div class="row pb-4 mb-4 border-bottom align-items-center">
-            <div class="col-sm-7 d-flex align-items-center">
+            <div class="col-7 d-flex align-items-center">
                 <img src="{{ url_for('static', filename='img/TechManager_Emblem.png') }}" 
                      alt="TechManager Logo" 
-                     style="width: 55px; height: 55px; object-fit: contain;" 
-                     class="me-3">
+                     style="width: 58px; height: 58px; object-fit: contain;" 
+                     class="me-3"
+                     onerror="this.style.display='none'">
                 <div>
-                    <h3 class="fw-bold text-primary mb-0">{{ sistema.nombre_sistema }}</h3>
-                    <p class="text-muted small mb-0">Gestión Tecnológica Corporativa</p>
+                    <h3 class="fw-bold text-primary mb-0 tracking-tight">{{ sistema.nombre_sistema }}</h3>
+                    <p class="text-muted small mb-0 fw-medium">Gestión Tecnológica Corporativa</p>
                 </div>
             </div>
-            <div class="col-sm-5 text-sm-end mt-3 mt-sm-0">
-                <h5 class="fw-bold text-dark mb-0">FACTURA ELECTRÓNICA</h5>
-                <span class="fs-5 text-secondary fw-bold">{{ factura.numero }}</span>
-                <p class="text-muted small mb-0 mt-1">
-                    <strong>Fecha:</strong> {{ factura.fecha.strftime('%d/%m/%Y') if (factura.fecha and factura.fecha.strftime is defined) else (factura.fecha or 'N/A') }}
+            <div class="col-5 text-end">
+                <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-1">Comprobante de Venta</span>
+                <h4 class="fw-bold text-dark font-monospace mb-1">{{ factura.numero }}</h4>
+                <p class="text-muted small mb-0">
+                    <strong>Fecha:</strong> 
+                    {% if factura.fecha is string %}
+                        {{ factura.fecha }}
+                    {% elif factura.fecha %}
+                        {{ factura.fecha.strftime('%d/%m/%Y') }}
+                    {% else %}
+                        N/A
+                    {% endif %}
                 </p>
             </div>
         </div>
 
-        <!-- Información del Cliente y Estado del Pago -->
+        <!-- Información del Cliente y Cobro -->
         <div class="row mb-4">
             <div class="col-sm-6">
-                <span class="text-uppercase tracking-wider text-muted small fw-bold d-block mb-1">Facturado a:</span>
-                <h6 class="fw-bold text-dark mb-1">{{ factura.cliente }}</h6>
-                <p class="text-muted small mb-1"><strong>Cédula / RUC:</strong> {{ factura.ruc or 'No registrado' }}</p>
-                <p class="text-muted small mb-1"><strong>Teléfono:</strong> {{ factura.telefono or 'N/A' }}</p>
+                <span class="text-uppercase tracking-wider text-muted small fw-bold d-block mb-2">Datos del Cliente</span>
+                <h6 class="fw-bold text-dark mb-1 fs-6">{{ factura.cliente }}</h6>
+                <p class="text-muted small mb-1"><strong>RUC / Cédula:</strong> {{ factura.ruc or '9999999999999' }}</p>
+                <p class="text-muted small mb-1"><strong>Teléfono:</strong> {{ factura.telefono or 'Consumidor Final' }}</p>
                 <p class="text-muted small mb-0"><strong>Correo:</strong> {{ factura.email or 'N/A' }}</p>
             </div>
             <div class="col-sm-6 text-sm-end mt-3 mt-sm-0">
+                <span class="text-uppercase tracking-wider text-muted small fw-bold d-block mb-2">Información del Cobro</span>
                 <div class="mb-2">
-                    <span class="text-uppercase tracking-wider text-muted small fw-bold d-block mb-1">Estado de Pago:</span>
-                    <span class="badge {% if factura.estado == 'Pagada' %}bg-success{% else %}bg-warning text-dark{% endif %} px-3 py-2 fs-6 rounded-pill">
-                        {{ factura.estado or 'Pagada' }}
-                    </span>
+                    <span class="text-muted small d-inline-block me-1">Estado:</span>
+                    {% if factura.estado == 'Anulada' %}
+                        <span class="badge badge-void px-3 py-1 fs-6 rounded-pill">
+                            <i class="bi bi-x-circle-fill me-1"></i> Anulada
+                        </span>
+                    {% else %}
+                        <span class="badge badge-paid px-3 py-1 fs-6 rounded-pill">
+                            <i class="bi bi-check-circle-fill me-1"></i> Pagada
+                        </span>
+                    {% endif %}
                 </div>
                 <div>
-                    <span class="text-uppercase tracking-wider text-muted small fw-bold d-block mb-1">Forma de Pago:</span>
+                    <span class="text-muted small d-inline-block me-1">Método de Pago:</span>
                     <span class="badge bg-light text-dark border px-3 py-1 fs-6">
                         <i class="bi bi-wallet2 text-primary me-1"></i> {{ factura.metodo_pago or 'Efectivo' }}
                     </span>
@@ -102,37 +136,54 @@
             </div>
         </div>
 
-        <!-- Tabla de Productos -->
-        <table class="table table-bordered mb-4 align-middle">
-            <thead class="table-light">
-                <tr>
-                    <th>Descripción del Producto</th>
-                    <th class="text-center" style="width: 100px;">Cant.</th>
-                    <th class="text-end" style="width: 140px;">Precio Unit.</th>
-                    <th class="text-end" style="width: 140px;">Subtotal</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for d in detalles %}
-                <tr>
-                    <td class="fw-medium">{{ d.nombre }}</td>
-                    <td class="text-center">{{ d.cantidad }}</td>
-                    <td class="text-end">${{ "%.2f"|format(d.precio) }}</td>
-                    <td class="text-end fw-bold">${{ "%.2f"|format(d.subtotal) }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-            <tfoot>
-                <tr>
-                    <th colspan="3" class="text-end py-2">Total a Pagar:</th>
-                    <th class="text-end text-success fs-5 py-2">${{ "%.2f"|format(factura.monto) }}</th>
-                </tr>
-            </tfoot>
-        </table>
+        <!-- Tabla de Artículos Facturados -->
+        <div class="table-responsive mb-4">
+            <table class="table table-bordered align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">Descripción del Producto / Servicio</th>
+                        <th class="text-center" style="width: 100px;">Cant.</th>
+                        <th class="text-end" style="width: 140px;">Precio Unit. ({{ sistema.moneda }})</th>
+                        <th class="text-end pe-3" style="width: 140px;">Subtotal ({{ sistema.moneda }})</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in detalles %}
+                    <tr>
+                        <td class="ps-3 fw-medium text-dark">{{ d.nombre }}</td>
+                        <td class="text-center">{{ d.cantidad }}</td>
+                        <td class="text-end">${{ "%.2f"|format(d.precio) }}</td>
+                        <td class="text-end pe-3 fw-bold">${{ "%.2f"|format(d.subtotal) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center py-3 text-muted">Sin detalles asociados a este comprobante.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="3" class="text-end py-2 text-muted fw-semibold">Subtotal:</th>
+                        <td class="text-end pe-3 py-2 fw-semibold">${{ "%.2f"|format(factura.monto) }}</td>
+                    </tr>
+                    <tr>
+                        <th colspan="3" class="text-end py-2 text-muted fw-semibold border-top-0">Tarifa 0% / Exento:</th>
+                        <td class="text-end pe-3 py-2 fw-semibold border-top-0">$0.00</td>
+                    </tr>
+                    <tr class="table-light">
+                        <th colspan="3" class="text-end py-3 fs-5 fw-bold text-dark">Total Cobrado:</th>
+                        <th class="text-end pe-3 py-3 fs-5 fw-bold text-success">${{ "%.2f"|format(factura.monto) }}</th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
 
-        <!-- Pie de página fiscal -->
+        <!-- Pie de Página Fiscal y Auditoría -->
         <div class="text-center pt-3 border-top">
-            <small class="text-muted">Este comprobante es un documento legal emitido por {{ sistema.nombre_sistema }}. Documento generado digitalmente.</small>
+            <p class="text-muted small mb-1">
+                Comprobante emitido satisfactoriamente con cobro verificado en sistema.
+            </p>
+            <small class="text-black-50">Documento electrónico generado por <strong>{{ sistema.nombre_sistema }}</strong>.</small>
         </div>
     </div>
 </div>

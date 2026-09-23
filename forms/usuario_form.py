@@ -3,9 +3,23 @@ from wtforms import StringField, PasswordField, SubmitField
 from wtforms.validators import DataRequired, Email, Length, EqualTo, Regexp, ValidationError
 
 class UsuarioForm(FlaskForm):
+    # Nuevos campos de identificación personal
+    nombres = StringField('Nombres', validators=[
+        DataRequired(message="Los nombres son obligatorios."),
+        Length(min=2, max=60, message="Los nombres deben tener entre 2 y 60 caracteres."),
+        Regexp(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$', message="Los nombres solo deben contener letras.")
+    ])
+
+    apellidos = StringField('Apellidos', validators=[
+        DataRequired(message="Los apellidos son obligatorios."),
+        Length(min=2, max=60, message="Los apellidos deben tener entre 2 y 60 caracteres."),
+        Regexp(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$', message="Los apellidos solo deben contener letras.")
+    ])
+
     usuario = StringField('Nombre de Usuario', validators=[
         DataRequired(message="El usuario es obligatorio."),
-        Length(min=3, max=50, message="El usuario debe tener entre 3 y 50 caracteres.")
+        Length(min=3, max=50, message="El usuario debe tener entre 3 y 50 caracteres."),
+        Regexp(r'^[a-zA-Z0-9_.-]+$', message="El usuario solo puede tener letras, números, puntos, guiones y guiones bajos.")
     ])
     
     ruc = StringField('Cédula o RUC', validators=[
@@ -41,7 +55,7 @@ class UsuarioForm(FlaskForm):
     
     submit = SubmitField('Registrarse')
 
-    # Método de validación personalizada para el campo 'usuario'
+    # Validación personalizada para 'usuario'
     def validate_usuario(self, field):
         palabras_prohibidas = [
             'admin', 

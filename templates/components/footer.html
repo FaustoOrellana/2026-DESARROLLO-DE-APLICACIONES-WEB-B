@@ -1,9 +1,14 @@
-<footer class="text-center py-4 py-md-5 mt-auto footer-custom">
-    <div class="container">
+<footer class="text-center py-4 py-md-5 mt-auto footer-custom bg-dark text-white-50 border-top border-secondary border-opacity-25">
+    <div class="container-xl">
         <!-- Logo y Marca -->
         <div class="footer-logo mb-3 d-flex align-items-center justify-content-center gap-2">
-            <img src="{{ url_for('static', filename='img/TechManager_Emblem.png') }}" alt="Logo TechManager" style="width: 28px; height: 28px; object-fit: contain;">
-            <span class="fw-bold text-white fs-5 tracking-tight">TechManager</span>
+            <img src="{{ url_for('static', filename='img/TechManager_Emblem.png') }}" 
+                 alt="Logo TechManager" 
+                 style="width: 28px; height: 28px; object-fit: contain;"
+                 onerror="this.style.display='none'">
+            <span class="fw-bold text-white fs-5 tracking-tight">
+                {{ sistema.nombre_sistema if sistema else 'TechManager' }}
+            </span>
         </div>
 
         <!-- Créditos del Proyecto -->

@@ -4,58 +4,88 @@
 
 {% block content %}
 <!-- 1. SECCIÓN INICIO / HERO -->
-<section id="inicio" class="hero-section text-center rounded-4 shadow-sm mb-5 position-relative overflow-hidden">
-    <div class="hero-overlay"></div>
+<section id="inicio" class="hero-section text-center rounded-4 shadow-sm mb-5 position-relative overflow-hidden bg-white border border-light-subtle">
     <div class="position-relative z-1 py-5 px-3">
-        <!-- Variable simple con filtro de Jinja2: upper -->
-        <h1 class="display-4 mb-3 text-dark fw-bold tracking-tight">{{ mensaje|upper }}</h1> 
-        <p class="lead text-secondary mx-auto mb-4" style="max-width: 650px;">
-            Bienvenido a <strong>{{ sistema.nombre_sistema }}</strong>, plataforma para la administración de recursos tecnológicos durante el período <strong>{{ sistema.periodo }}</strong>.
+        <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Plataforma Tecnológica Integral</span>
+        <h1 class="display-5 mb-3 text-dark fw-bold tracking-tight">{{ mensaje|upper }}</h1> 
+        <p class="lead text-secondary mx-auto mb-4" style="max-width: 680px;">
+            Bienvenido a <strong>{{ sistema.nombre_sistema }}</strong>, solución corporativa para la administración y control de recursos tecnológicos durante el período <strong>{{ sistema.periodo }}</strong>.
         </p>
         <div class="d-flex justify-content-center gap-3 flex-wrap">
-            <a href="{{ url_for('productos') }}" class="btn btn-primary btn-lg px-4 py-3 rounded-3 shadow-sm fw-medium transition-all">
-                Explorar Productos <i class="bi bi-arrow-right ms-2"></i>
+            <a href="{{ url_for('productos') }}" class="btn btn-primary btn-lg px-4 py-3 rounded-3 shadow-sm fw-semibold">
+                Explorar Catálogo <i class="bi bi-arrow-right ms-2"></i>
             </a>
-            <a href="#servicios" class="btn btn-outline-primary btn-lg px-4 py-3 rounded-3 fw-medium transition-all">
+            <a href="#servicios" class="btn btn-outline-primary btn-lg px-4 py-3 rounded-3 fw-semibold">
                 Nuestros Servicios <i class="bi bi-briefcase ms-2"></i>
             </a>
         </div>
     </div>
 </section>
 
-<!-- 2. SECCIÓN DE MÉTRICAS DINÁMICAS (DATOS DESDE POSTGRESQL) -->
+<!-- 2. SECCIÓN DE MÉTRICAS DINÁMICAS (DATOS ACTIVOS) -->
 <section id="metricas" class="mb-5">
     <div class="row g-4 text-center">
+        <!-- Productos -->
         <div class="col-sm-6 col-md-3">
-            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100">
-                <div class="text-primary mb-2"><i class="bi bi-box-seam fs-2"></i></div>
-                <h3 class="fw-bold text-dark mb-1">{{ total_productos }}</h3>
-                <p class="text-secondary small mb-3">Productos Registrados</p>
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="text-primary mb-2"><i class="bi bi-box-seam fs-2"></i></div>
+                    <h3 class="fw-bold text-dark mb-1">{{ total_productos }}</h3>
+                    <p class="text-secondary small mb-3">Productos Disponibles</p>
+                </div>
                 <a href="{{ url_for('productos') }}" class="btn btn-sm btn-outline-primary rounded-pill mt-auto">Ver Catálogo</a>
             </div>
         </div>
+
+        <!-- Clientes -->
         <div class="col-sm-6 col-md-3">
-            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100">
-                <div class="text-success mb-2"><i class="bi bi-people fs-2"></i></div>
-                <h3 class="fw-bold text-dark mb-1">{{ total_clientes }}</h3>
-                <p class="text-secondary small mb-3">Clientes Activos</p>
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="text-success mb-2"><i class="bi bi-people fs-2"></i></div>
+                    <h3 class="fw-bold text-dark mb-1">{{ total_clientes }}</h3>
+                    <p class="text-secondary small mb-3">Clientes Registrados</p>
+                </div>
+                {% if current_user.is_authenticated and current_user.tiene_rol('admin', 'operador') %}
                 <a href="{{ url_for('clientes') }}" class="btn btn-sm btn-outline-success rounded-pill mt-auto">Ver Directorio</a>
+                {% else %}
+                <a href="{{ url_for('registro') if not current_user.is_authenticated else url_for('productos') }}" class="btn btn-sm btn-outline-success rounded-pill mt-auto">
+                    {{ 'Crear Cuenta' if not current_user.is_authenticated else 'Ir a Comprar' }}
+                </a>
+                {% endif %}
             </div>
         </div>
+
+        <!-- Proveedores -->
         <div class="col-sm-6 col-md-3">
-            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100">
-                <div class="text-info mb-2"><i class="bi bi-truck fs-2"></i></div>
-                <h3 class="fw-bold text-dark mb-1">{{ total_proveedores }}</h3>
-                <p class="text-secondary small mb-3">Proveedores Aliados</p>
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="text-info mb-2"><i class="bi bi-truck fs-2"></i></div>
+                    <h3 class="fw-bold text-dark mb-1">{{ total_proveedores }}</h3>
+                    <p class="text-secondary small mb-3">Proveedores Aliados</p>
+                </div>
+                {% if current_user.is_authenticated and current_user.tiene_rol('admin', 'operador') %}
                 <a href="{{ url_for('proveedores') }}" class="btn btn-sm btn-outline-info rounded-pill mt-auto">Ver Proveedores</a>
+                {% else %}
+                <span class="badge bg-light text-muted border rounded-pill py-2 mt-auto">Cadena Activa</span>
+                {% endif %}
             </div>
         </div>
+
+        <!-- Facturas / Comprobantes -->
         <div class="col-sm-6 col-md-3">
-            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100">
-                <div class="text-warning mb-2"><i class="bi bi-receipt fs-2"></i></div>
-                <h3 class="fw-bold text-dark mb-1">{{ total_facturas }}</h3>
-                <p class="text-secondary small mb-3">Comprobantes</p>
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border border-light h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="text-warning mb-2"><i class="bi bi-receipt fs-2"></i></div>
+                    <h3 class="fw-bold text-dark mb-1">{{ total_facturas }}</h3>
+                    <p class="text-secondary small mb-3">Comprobantes Emitidos</p>
+                </div>
+                {% if current_user.is_authenticated and current_user.tiene_rol('admin', 'operador') %}
                 <a href="{{ url_for('facturacion') }}" class="btn btn-sm btn-outline-warning rounded-pill mt-auto">Ver Historial</a>
+                {% elif current_user.is_authenticated and current_user.rol == 'usuario' %}
+                <a href="{{ url_for('mis_facturas') }}" class="btn btn-sm btn-outline-warning rounded-pill mt-auto">Mis Compras</a>
+                {% else %}
+                <a href="{{ url_for('login') }}" class="btn btn-sm btn-outline-warning rounded-pill mt-auto">Consultar Compras</a>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -69,13 +99,16 @@
                 <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Nuestra Identidad</span>
                 <h2 class="mb-4 text-dark fw-bold">Quiénes Somos</h2>
                 <p class="text-secondary mb-0" style="text-align: justify; line-height: 1.8;">
-                    TechManager es una plataforma tecnológica desarrollada con el propósito de facilitar la administración y monitoreo de recursos informáticos en empresas, instituciones educativas y organizaciones de diferentes sectores. Nuestro sistema permite gestionar inventarios de hardware y software, supervisar el estado de equipos tecnológicos, controlar licencias y generar reportes que apoyen la toma de decisiones. Además, busca optimizar los procesos internos mediante herramientas modernas que incrementan la productividad y mejoran la seguridad de la información.
+                    {{ sistema.nombre_sistema }} es una solución integral diseñada para optimizar la cadena de comercialización, control de stock y emisión contable de equipos de cómputo y suministros tecnológicos. Nuestro ecosistema integra catálogos actualizados en tiempo real, gestión de cartera de clientes y proveedores, y facturación estructurada bajo auditoría estricta, garantizando máxima transparencia operativa y seguridad de los datos empresariales.
                 </p>
             </article>
         </div>
         <div class="col-md-5 text-center">
             <div class="image-wrapper position-relative">
-                <img src="{{ url_for('static', filename='img/TechManager.jpg') }}" alt="Tecnología de la Información" class="img-fluid rounded-4 shadow-sm img-hover-effect">
+                <img src="{{ url_for('static', filename='img/TechManager.jpg') }}" 
+                     alt="Tecnología de la Información" 
+                     class="img-fluid rounded-4 shadow-sm"
+                     onerror="this.src='https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=600&q=80'">
             </div>
         </div>
     </div>
@@ -84,66 +117,66 @@
 <!-- 4. SECCIÓN SERVICIOS -->
 <section id="servicios" class="mb-5">
     <div class="text-center mb-5">
-        <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">¿Qué ofrecemos?</span>
+        <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Soluciones Corporativas</span>
         <h2 class="fw-bold text-dark">Servicios Integrados</h2>
-        <p class="text-muted">Módulos avanzados listos para optimizar tu flujo operativo corporativo.</p>
+        <p class="text-muted">Módulos avanzados diseñados para optimizar el rendimiento de su empresa.</p>
     </div>
     <div class="row g-4 text-center">
         <div class="col-md-6 col-lg-3">
             <div class="card border-0 shadow-sm rounded-4 p-4 h-100 border border-light bg-white">
                 <div class="text-primary mb-3"><i class="bi bi-cpu fs-1"></i></div>
-                <h5 class="fw-bold text-dark">Gestión de Activos</h5>
-                <p class="text-secondary small mb-0">Control del hardware, catálogo de insumos y niveles de stock en almacén.</p>
+                <h5 class="fw-bold text-dark">Gestión de Inventario</h5>
+                <p class="text-secondary small mb-0">Control de hardware, insumos informáticos y validación de existencias en almacén.</p>
             </div>
         </div>
         <div class="col-md-6 col-lg-3">
             <div class="card border-0 shadow-sm rounded-4 p-4 h-100 border border-light bg-white">
                 <div class="text-success mb-3"><i class="bi bi-shield-check fs-1"></i></div>
-                <h5 class="fw-bold text-dark">Integridad y Control</h5>
-                <p class="text-secondary small mb-0">Seguridad relacional con validaciones y respaldos en base de datos PostgreSQL.</p>
+                <h5 class="fw-bold text-dark">Integridad de Datos</h5>
+                <p class="text-secondary small mb-0">Seguridad transaccional, trazabilidad por usuario y respaldo relacional de información.</p>
             </div>
         </div>
         <div class="col-md-6 col-lg-3">
             <div class="card border-0 shadow-sm rounded-4 p-4 h-100 border border-light bg-white">
                 <div class="text-info mb-3"><i class="bi bi-truck fs-1"></i></div>
-                <h5 class="fw-bold text-dark">Cadena de Abastecimiento</h5>
-                <p class="text-secondary small mb-0">Supervisión de compras, cartera de proveedores y contratos comerciales.</p>
+                <h5 class="fw-bold text-dark">Cadena de Suministro</h5>
+                <p class="text-secondary small mb-0">Directorio de proveedores aliados para abastecimiento continuo y oportuno.</p>
             </div>
         </div>
         <div class="col-md-6 col-lg-3">
             <div class="card border-0 shadow-sm rounded-4 p-4 h-100 border border-light bg-white">
                 <div class="text-warning mb-3"><i class="bi bi-receipt-cutoff fs-1"></i></div>
-                <h5 class="fw-bold text-dark">Emisión Contable</h5>
-                <p class="text-secondary small mb-0">Generación y seguimiento de facturación mercantil con historial por cliente.</p>
+                <h5 class="fw-bold text-dark">Facturación y Cobro</h5>
+                <p class="text-secondary small mb-0">Emisión mercantil inmediata con comprobantes fiscales bajo cobro verificado.</p>
             </div>
         </div>
     </div>
 </section>
 
-<!-- 5. SECCIÓN CANALES DE CONTACTO (SIN FORMULARIO) -->
+<!-- 5. SECCIÓN CANALES DE CONTACTO -->
 <section id="contactos" class="bg-white rounded-4 shadow-sm p-4 p-md-5 mb-5 border border-light">
     <div class="text-center mb-5">
         <span class="text-primary fw-bold text-uppercase tracking-wider small d-block mb-2">Canales de Comunicación</span>
-        <h2 class="fw-bold text-dark">Centro de Soporte y Contacto</h2>
+        <h2 class="fw-bold text-dark">Centro de Atención y Soporte</h2>
     </div>
 
     <div class="row g-4 justify-content-center text-center mb-5">
         <div class="col-sm-6 col-md-4">
-            <div class="p-3 bg-light rounded-3 h-100 border border-light-subtle">
+            <div class="p-3 bg-light rounded-4 h-100 border border-light-subtle">
                 <div class="contact-icon text-primary mb-2"><i class="bi bi-envelope-open fs-3"></i></div>
                 <h5 class="fw-bold text-dark small mb-1">Correo Electrónico</h5>
                 <a href="mailto:andresorellana305@gmail.com" class="text-decoration-none text-secondary small text-break">andresorellana305@gmail.com</a>
             </div>
         </div>
         <div class="col-sm-6 col-md-4">
-            <div class="p-3 bg-light rounded-3 h-100 border border-light-subtle">
+            <div class="p-3 bg-light rounded-4 h-100 border border-light-subtle">
                 <div class="contact-icon text-primary mb-2"><i class="bi bi-telephone fs-3"></i></div>
                 <h5 class="fw-bold text-dark small mb-1">Teléfono Directo</h5>
                 <p class="text-secondary small m-0">+593 99 642 6896</p>
             </div>
         </div>
         <div class="col-md-4">
-            <div class="p-3 bg-light rounded-3 h-100 border border-light-subtle">
+            <div class="p-3 bg-light rounded-4 h-100 border border-light-subtle">
                 <div class="contact-icon text-primary mb-2"><i class="bi bi-geo-alt fs-3"></i></div>
                 <h5 class="fw-bold text-dark small mb-1">Ubicación</h5>
                 <p class="text-secondary small m-0">Machala, El Oro, Ecuador</p>
@@ -152,7 +185,7 @@
     </div>
         
     <!-- MAPA EMBEBIDO -->
-    <div class="mx-auto mb-5" style="max-width: 800px;">
+    <div class="mx-auto mb-5" style="max-width: 850px;">
         <div class="ratio ratio-21x9 rounded-4 shadow-sm overflow-hidden border border-light-subtle">
             <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d248.96116965402123!2d-79.96214121580122!3d-3.2557357209299496!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x90330e57ad65e1b5%3A0x3223ffd7ee2f5593!2sCorporaci%C3%B3n%20Nacional%20de%20Telecomunicaciones!5e0!3m2!1ses!2sec!4v1782594963960!5m2!1ses!2sec" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
         </div>
@@ -162,18 +195,18 @@
     <div class="text-center">
         <p class="fw-medium text-dark small mb-3">Conéctate en nuestras plataformas oficiales:</p>
         <div class="d-flex flex-wrap justify-content-center gap-2">
-            <a href="https://www.facebook.com/techmanager55?locale=es_LA" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3"><i class="bi bi-facebook me-2"></i>Facebook</a>
-            <a href="https://www.instagram.com/techmanager" target="_blank" class="btn btn-sm btn-outline-danger rounded-pill px-3"><i class="bi bi-instagram me-2"></i>Instagram</a>
-            <a href="https://www.tiktok.com/@techmanager.oficial" target="_blank" class="btn btn-sm btn-outline-dark rounded-pill px-3"><i class="bi bi-tiktok me-2"></i>TikTok</a>
+            <a href="https://www.facebook.com/techmanager55?locale=es_LA" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm"><i class="bi bi-facebook me-2"></i>Facebook</a>
+            <a href="https://www.instagram.com/techmanager" target="_blank" class="btn btn-sm btn-outline-danger rounded-pill px-3 shadow-sm"><i class="bi bi-instagram me-2"></i>Instagram</a>
+            <a href="https://www.tiktok.com/@techmanager.oficial" target="_blank" class="btn btn-sm btn-outline-dark rounded-pill px-3 shadow-sm"><i class="bi bi-tiktok me-2"></i>TikTok</a>
         </div>
     </div>
 </section>
 
 <!-- 6. VIDEO INFORMATIVO -->
 <section class="text-center bg-white rounded-4 shadow-sm p-4 p-md-5 mb-5 border border-light">
-    <h2 class="text-dark fw-bold mb-2">Video Informativo</h2>
-    <p class="text-muted small mb-4">Descubre cómo funciona la integración automatizada en menos de dos minutos.</p>
-    <div class="mx-auto" style="max-width: 800px;">
+    <h2 class="text-dark fw-bold mb-2">Video Demostrativo</h2>
+    <p class="text-muted small mb-4">Descubre cómo funciona la integración del ecosistema en menos de dos minutos.</p>
+    <div class="mx-auto" style="max-width: 850px;">
         <div class="ratio ratio-16x9 rounded-4 shadow-sm overflow-hidden border border-light-subtle">
             <iframe src="https://www.youtube.com/embed/JfKDoHTPWVY?si=16PSuHm7C3CNU7Lt" title="YouTube video player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
         </div>
@@ -194,7 +227,7 @@
     </div>
     <div class="d-flex justify-content-between py-2 small px-2">
         <span class="text-secondary">Domingos</span>
-        <span class="fw-bold text-danger"><span class="badge bg-danger-subtle text-danger rounded-pill">Cerrado</span></span>
+        <span class="badge bg-danger-subtle text-danger rounded-pill px-3 py-1">Cerrado</span>
     </div>
 </aside>
 {% endblock %}

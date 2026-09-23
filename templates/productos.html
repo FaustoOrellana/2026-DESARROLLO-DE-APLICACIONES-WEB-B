@@ -4,21 +4,57 @@
 
 {% block content %}
 <div class="w-100">
+    <!-- Encabezado de la Sección -->
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
         <div>
             <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Catálogo Corporativo</span>
             <h2 class="fw-bold text-dark m-0">Productos</h2>
         </div>
         <div class="d-flex align-items-center gap-2 gap-sm-3 flex-wrap">
-            <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Total: {{ productos|length }}</span>
+            <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Total Activos: {{ total_items }}</span>
             {% if current_user.rol in ['admin', 'operador'] %}
-            <a href="{{ url_for('formulario_producto') }}" class="btn btn-primary fw-semibold px-3 py-2 rounded-3 text-nowrap">
+            <a href="{{ url_for('formulario_producto') }}" class="btn btn-primary fw-semibold px-3 py-2 rounded-3 text-nowrap shadow-sm">
                 <i class="bi bi-plus-lg me-1"></i> Nuevo Producto
             </a>
             {% endif %}
         </div>
     </div>
 
+    <!-- Barra de Búsqueda Corporativa -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-3">
+            <form id="formBusqueda" method="GET" action="{{ url_for('productos') }}" class="row g-2 align-items-center">
+                <div class="col-md-6 col-lg-5">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-end-0 text-muted">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               id="inputBusqueda" 
+                               name="q" 
+                               class="form-control bg-light border-start-0 ps-0" 
+                               placeholder="Buscar por nombre, categoría o descripción..." 
+                               value="{{ q }}" 
+                               autocomplete="off">
+                        {% if q %}
+                        <a href="{{ url_for('productos') }}" class="btn btn-outline-secondary border-start-0" title="Limpiar búsqueda">
+                            <i class="bi bi-x-lg"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-7 text-md-end text-muted small mt-2 mt-md-0">
+                    {% if q %}
+                        Resultados encontrados para: <strong class="text-dark">"{{ q }}"</strong> (Página {{ page }} de {{ total_pages }})
+                    {% else %}
+                        Página <strong class="text-dark">{{ page }}</strong> de <strong class="text-dark">{{ total_pages }}</strong>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Tabla de Productos -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -26,6 +62,7 @@
                     <tr>
                         <th class="ps-4">ID</th>
                         <th>Nombre del Producto</th>
+                        <th>Descripción</th>
                         <th>Categoría</th>
                         <th>Precio ({{ sistema.moneda }})</th>
                         <th>Stock</th>
@@ -38,6 +75,9 @@
                     <tr>
                         <td class="ps-4 fw-bold text-secondary">#{{ p.id }}</td>
                         <td class="fw-semibold text-dark">{{ p.nombre }}</td>
+                        <td class="text-muted small text-truncate" style="max-width: 200px;" title="{{ p.descripcion or 'Sin descripción' }}">
+                            {{ p.descripcion if p.descripcion else '<span class="fst-italic text-black-50">Sin descripción</span>'|safe }}
+                        </td>
                         <td>
                             <span class="badge bg-info text-white rounded-2 px-2 py-1">{{ p.categoria }}</span>
                         </td>
@@ -77,17 +117,46 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">
-                            No hay productos registrados en el sistema.
+                        <td colspan="8" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
+                            No se encontraron productos activos con los criterios ingresados.
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        <!-- Paginación de Registros -->
+        {% if total_pages > 1 %}
+        <div class="card-footer bg-white border-0 py-3">
+            <nav aria-label="Navegación de páginas">
+                <ul class="pagination pagination-sm justify-content-center m-0 gap-1">
+                    <li class="page-item {{ 'disabled' if page <= 1 }}">
+                        <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page-1, q=q) }}">
+                            <i class="bi bi-chevron-left me-1"></i> Anterior
+                        </a>
+                    </li>
+                    
+                    {% for num in range(1, total_pages + 1) %}
+                    <li class="page-item {{ 'active' if num == page }}">
+                        <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=num, q=q) }}">{{ num }}</a>
+                    </li>
+                    {% endfor %}
+
+                    <li class="page-item {{ 'disabled' if page >= total_pages }}">
+                        <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page+1, q=q) }}">
+                            Siguiente <i class="bi bi-chevron-right ms-1"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
     </div>
 </div>
 
+<!-- Modales de Confirmación de Baja de Producto -->
 {% if current_user.rol in ['admin', 'operador'] %}
     {% for p in productos %}
     <div class="modal fade" id="modalEliminar{{ p.id }}" tabindex="-1" aria-labelledby="modalLabel{{ p.id }}" aria-hidden="true">
@@ -100,15 +169,15 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body py-4">
-                    <p class="mb-1">¿Está seguro de que desea eliminar permanentemente el producto?</p>
-                    <p class="fw-bold text-dark fs-5 mb-0">#{{ p.id }} - {{ p.nombre }}</p>
-                    <small class="text-muted">Esta acción no se puede deshacer y afectará la base de datos PostgreSQL.</small>
+                    <p class="mb-1 text-secondary">¿Está seguro de que desea retirar del catálogo el siguiente producto?</p>
+                    <p class="fw-bold text-dark fs-5 mb-1">#{{ p.id }} - {{ p.nombre }}</p>
+                    <small class="text-muted">El registro dejará de mostrarse en las operaciones activas del sistema.</small>
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
                     <form action="{{ url_for('eliminar_producto', id=p.id) }}" method="POST" class="d-inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                        <button type="submit" class="btn btn-danger px-3 rounded-3">
+                        <button type="submit" class="btn btn-danger px-3 rounded-3 shadow-sm">
                             <i class="bi bi-trash-fill me-1"></i> Sí, eliminar
                         </button>
                     </form>
@@ -118,4 +187,31 @@
     </div>
     {% endfor %}
 {% endif %}
+
+<!-- Script de Búsqueda con Envío Progresivo -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const inputBusqueda = document.getElementById('inputBusqueda');
+    const formBusqueda = document.getElementById('formBusqueda');
+    let timeoutId;
+
+    if (inputBusqueda && formBusqueda) {
+        // Mantiene el foco y la posición del cursor si se recarga la página
+        if (inputBusqueda.value.length > 0) {
+            inputBusqueda.focus();
+            const val = inputBusqueda.value;
+            inputBusqueda.value = '';
+            inputBusqueda.value = val;
+        }
+
+        // Ejecuta la búsqueda 400ms después de que el usuario deja de escribir
+        inputBusqueda.addEventListener('input', function() {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(function() {
+                formBusqueda.submit();
+            }, 400);
+        });
+    }
+});
+</script>
 {% endblock %}

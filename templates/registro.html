@@ -4,98 +4,153 @@
 
 {% block content %}
 <div class="row justify-content-center mt-4 mb-5">
-    <div class="col-11 col-sm-8 col-md-6 col-lg-5">
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-primary text-white text-center py-3">
-                <h4 class="mb-0"><i class="bi bi-person-plus-fill me-2"></i>Registro de Usuario</h4>
+    <div class="col-11 col-sm-10 col-md-8 col-lg-7 col-xl-6">
+        <!-- Tarjeta de Registro -->
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden bg-white">
+            <div class="card-header bg-primary text-white text-center py-4 border-0">
+                <div class="rounded-circle bg-white bg-opacity-10 d-inline-flex p-3 mb-2">
+                    <i class="bi bi-person-plus-fill fs-2"></i>
+                </div>
+                <h4 class="fw-bold mb-0">Crear Nueva Cuenta</h4>
+                <small class="text-white-50">Registro de cliente y acceso al catálogo</small>
             </div>
-            <div class="card-body p-4">
+
+            <div class="card-body p-4 p-md-5">
                 <form method="POST" novalidate>
                     {{ form.hidden_tag() }}
 
-                    <!-- Campo Usuario -->
-                    <div class="mb-3">
-                        {{ form.usuario.label(class="form-label fw-bold") }}
-                        {{ form.usuario(class="form-control" + (" is-invalid" if form.usuario.errors else ""), placeholder="Nombre y Apellido o Usuario") }}
-                        {% for error in form.usuario.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
-                        {% endfor %}
+                    <!-- Fila 1: Nombres y Apellidos -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-6">
+                            {{ form.nombres.label(class="form-label text-dark fw-semibold small") }}
+                            {{ form.nombres(class="form-control rounded-3" + (" is-invalid" if form.nombres.errors else ""), placeholder="Ej: Carlos Andrés") }}
+                            {% for error in form.nombres.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-12 col-md-6">
+                            {{ form.apellidos.label(class="form-label text-dark fw-semibold small") }}
+                            {{ form.apellidos(class="form-control rounded-3" + (" is-invalid" if form.apellidos.errors else ""), placeholder="Ej: Mendoza Salazar") }}
+                            {% for error in form.apellidos.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <!-- Campo Cédula o RUC -->
-                    <div class="mb-3">
-                        {{ form.ruc.label(class="form-label fw-bold") }}
-                        {{ form.ruc(class="form-control" + (" is-invalid" if form.ruc.errors else ""), placeholder="Ej: 0701234567 (10 o 13 dígitos)", maxlength="13") }}
-                        {% for error in form.ruc.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
-                        {% endfor %}
+                    <!-- Fila 2: Nombre de Usuario y Correo Electrónico -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-6">
+                            {{ form.usuario.label(class="form-label text-dark fw-semibold small") }}
+                            {{ form.usuario(class="form-control rounded-3" + (" is-invalid" if form.usuario.errors else ""), placeholder="Ej: cmendoza", autocomplete="username") }}
+                            {% for error in form.usuario.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-12 col-md-6">
+                            {{ form.email.label(class="form-label text-dark fw-semibold small") }}
+                            {{ form.email(class="form-control rounded-3" + (" is-invalid" if form.email.errors else ""), placeholder="ejemplo@correo.com", autocomplete="email") }}
+                            {% for error in form.email.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <!-- Campo Teléfono de Contacto -->
-                    <div class="mb-3">
-                        {{ form.telefono.label(class="form-label fw-bold") }}
-                        {{ form.telefono(class="form-control" + (" is-invalid" if form.telefono.errors else ""), placeholder="Ej: 0991234567", maxlength="15") }}
-                        {% for error in form.telefono.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
-                        {% endfor %}
+                    <!-- Fila 3: Cédula/RUC y Teléfono de Contacto -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-6">
+                            {{ form.ruc.label(class="form-label text-dark fw-semibold small") }}
+                            {{ form.ruc(class="form-control rounded-3" + (" is-invalid" if form.ruc.errors else ""), placeholder="10 o 13 dígitos", maxlength="13") }}
+                            {% for error in form.ruc.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-12 col-md-6">
+                            {{ form.telefono.label(class="form-label text-dark fw-semibold small") }}
+                            {{ form.telefono(class="form-control rounded-3" + (" is-invalid" if form.telefono.errors else ""), placeholder="Ej: 0991234567", maxlength="15") }}
+                            {% for error in form.telefono.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <!-- Campo Correo Electrónico -->
-                    <div class="mb-3">
-                        {{ form.email.label(class="form-label fw-bold") }}
-                        {{ form.email(class="form-control" + (" is-invalid" if form.email.errors else ""), placeholder="ejemplo@correo.com", autocomplete="email") }}
-                        {% for error in form.email.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
-                        {% endfor %}
+                    <!-- Fila 4: Contraseña y Confirmar Contraseña (con Ojitos) -->
+                    <div class="row g-3 mb-3">
+                        <!-- Campo Contraseña -->
+                        <div class="col-12 col-md-6">
+                            {{ form.password.label(class="form-label text-dark fw-semibold small") }}
+                            <div class="input-group has-validation">
+                                {{ form.password(class="form-control rounded-start-3" + (" is-invalid" if form.password.errors else ""), id="inputPasswordReg", placeholder="Mínimo 6 caracteres", autocomplete="new-password") }}
+                                <button type="button" class="btn btn-outline-secondary rounded-end-3 px-3 d-flex align-items-center" onclick="toggleVisibilidadPassword('inputPasswordReg', 'iconoOjitoReg')" title="Mostrar u ocultar contraseña">
+                                    <i class="bi bi-eye" id="iconoOjitoReg"></i>
+                                </button>
+                            </div>
+                            {% for error in form.password.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Campo Confirmar Contraseña -->
+                        <div class="col-12 col-md-6">
+                            {{ form.confirm_password.label(class="form-label text-dark fw-semibold small") }}
+                            <div class="input-group has-validation">
+                                {{ form.confirm_password(class="form-control rounded-start-3" + (" is-invalid" if form.confirm_password.errors else ""), id="inputConfirmPassReg", placeholder="Repita la contraseña", autocomplete="new-password") }}
+                                <button type="button" class="btn btn-outline-secondary rounded-end-3 px-3 d-flex align-items-center" onclick="toggleVisibilidadPassword('inputConfirmPassReg', 'iconoOjitoConfirm')" title="Mostrar u ocultar contraseña">
+                                    <i class="bi bi-eye" id="iconoOjitoConfirm"></i>
+                                </button>
+                            </div>
+                            {% for error in form.confirm_password.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <!-- Campo Contraseña -->
-                    <div class="mb-3">
-                        {{ form.password.label(class="form-label fw-bold") }}
-                        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), placeholder="Contraseña (mínimo 6 caracteres)") }}
-                        {% for error in form.password.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
-                        {% endfor %}
-                    </div>
-
-                    <!-- Campo Confirmar Contraseña -->
-                    <div class="mb-3">
-                        {{ form.confirm_password.label(class="form-label fw-bold") }}
-                        {{ form.confirm_password(class="form-control" + (" is-invalid" if form.confirm_password.errors else ""), placeholder="Repita la contraseña") }}
-                        {% for error in form.confirm_password.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
-                        {% endfor %}
-                    </div>
-
-                    <!-- Bloque CAPTCHA -->
-                    <div class="mb-3">
-                        {{ form.captcha.label(class="form-label fw-bold") }}
+                    <!-- Fila 5: Bloque CAPTCHA -->
+                    <div class="mb-4">
+                        {{ form.captcha.label(class="form-label text-dark fw-semibold small") }}
                         <div class="d-flex align-items-center gap-2 mb-2">
-                            <img id="imgCaptchaReg" src="{{ url_for('captcha_image') }}" alt="Código CAPTCHA" class="border rounded shadow-sm">
-                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="recargarCaptcha()" title="Generar otro código">
+                            <img id="imgCaptchaReg" src="{{ url_for('captcha_image') }}" alt="Código CAPTCHA" class="border rounded-3 shadow-sm bg-light" style="height: 40px; object-fit: contain;">
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-3 px-2 py-1" onclick="recargarCaptcha()" title="Generar otro código">
                                 <i class="bi bi-arrow-clockwise"></i> Recargar
                             </button>
                         </div>
-                        {{ form.captcha(class="form-control" + (" is-invalid" if form.captcha.errors else ""), placeholder="Ingrese el texto de la imagen", autocomplete="off") }}
+                        {{ form.captcha(class="form-control rounded-3" + (" is-invalid" if form.captcha.errors else ""), placeholder="Ingrese los caracteres de la imagen", autocomplete="off") }}
                         {% for error in form.captcha.errors %}
-                            <div class="invalid-feedback">{{ error }}</div>
+                            <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
 
                     <!-- Botón Enviar -->
-                    <div class="d-grid gap-2 mt-4">
-                        {{ form.submit(class="btn btn-primary") }}
+                    <div class="d-grid gap-2">
+                        {{ form.submit(class="btn btn-primary fw-semibold py-2 rounded-3 shadow-sm") }}
                     </div>
                 </form>
             </div>
-            <div class="card-footer text-center py-3 bg-light">
-                <small class="text-muted">¿Ya tiene una cuenta? <a href="{{ url_for('login') }}" class="text-decoration-none fw-bold">Inicie sesión aquí</a></small>
+
+            <div class="card-footer text-center py-3 bg-light border-0">
+                <small class="text-muted">¿Ya tiene una cuenta? <a href="{{ url_for('login') }}" class="text-primary text-decoration-none fw-bold">Inicie sesión aquí</a></small>
             </div>
         </div>
     </div>
 </div>
 
 <script>
+// Función modular para alternar visibilidad de contraseñas
+function toggleVisibilidadPassword(inputId, iconId) {
+    const input = document.getElementById(inputId);
+    const icono = document.getElementById(iconId);
+
+    if (input.type === 'password') {
+        input.type = 'text';
+        icono.classList.remove('bi-eye');
+        icono.classList.add('bi-eye-slash');
+    } else {
+        input.type = 'password';
+        icono.classList.remove('bi-eye-slash');
+        icono.classList.add('bi-eye');
+    }
+}
+
+// Función para recargar la imagen de CAPTCHA
 function recargarCaptcha() {
     const img = document.getElementById('imgCaptchaReg');
     img.src = "{{ url_for('captcha_image') }}?" + new Date().getTime();

@@ -10,9 +10,12 @@
             <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">Mi Cuenta</span>
             <h2 class="fw-bold text-dark m-0"><i class="bi bi-bag-check me-2 text-primary"></i>Historial de Compras</h2>
         </div>
-        <a href="{{ url_for('productos') }}" class="btn btn-primary rounded-3 shadow-sm">
-            <i class="bi bi-box-seam me-1"></i> Ir al Catálogo
-        </a>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Pedidos: {{ facturas|length }}</span>
+            <a href="{{ url_for('productos') }}" class="btn btn-primary fw-semibold rounded-3 shadow-sm">
+                <i class="bi bi-box-seam me-1"></i> Ir al Catálogo
+            </a>
+        </div>
     </div>
 
     <!-- Tabla de comprobantes -->
@@ -24,9 +27,9 @@
                         <th class="ps-4">Nº Comprobante</th>
                         <th>Fecha de Emisión</th>
                         <th>Forma de Pago</th>
-                        <th>Monto Total</th>
-                        <th>Estado</th>
-                        <th class="text-end pe-4" style="width: 160px;">Acción</th>
+                        <th>Monto Total ({{ sistema.moneda }})</th>
+                        <th>Estado de Cobro</th>
+                        <th class="text-end pe-4" style="width: 170px;">Acción</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -38,7 +41,7 @@
                         </td>
 
                         <!-- Fecha de Emisión -->
-                        <td class="text-muted">
+                        <td class="text-muted small">
                             {{ f.fecha.strftime('%d/%m/%Y') if (f.fecha and f.fecha.strftime is defined) else (f.fecha or 'N/A') }}
                         </td>
 
@@ -54,15 +57,15 @@
                             ${{ "%.2f"|format(f.monto) }}
                         </td>
 
-                        <!-- Estado con badges de Bootstrap 5 -->
+                        <!-- Estado de Cobro -->
                         <td>
                             {% if f.estado == 'Pagada' %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
                                     <i class="bi bi-check-circle-fill me-1"></i> Pagada
                                 </span>
-                            {% elif f.estado == 'Pendiente' %}
-                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-3 py-1">
-                                    <i class="bi bi-clock-history me-1"></i> Pendiente
+                            {% elif f.estado == 'Anulada' %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1">
+                                    <i class="bi bi-x-circle-fill me-1"></i> Anulada
                                 </span>
                             {% else %}
                                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1">
@@ -73,7 +76,7 @@
 
                         <!-- Acción: Ver Comprobante -->
                         <td class="text-end pe-4">
-                            <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3" title="Ver / Imprimir Comprobante">
+                            <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-sm btn-outline-primary rounded-3 px-3 shadow-sm" title="Ver / Imprimir Comprobante">
                                 <i class="bi bi-printer-fill me-1"></i> Comprobante
                             </a>
                         </td>
@@ -83,8 +86,8 @@
                         <td colspan="6" class="text-center py-5 text-muted">
                             <i class="bi bi-bag-x fs-1 d-block mb-2 text-secondary opacity-50"></i>
                             <h5 class="fw-bold text-secondary">Aún no registras compras</h5>
-                            <p class="small mb-3">Revisa nuestro inventario de tecnología y realiza tu primer pedido.</p>
-                            <a href="{{ url_for('productos') }}" class="btn btn-outline-primary btn-sm rounded-3">Explorar Catálogo</a>
+                            <p class="small mb-3">Revisa nuestro inventario corporativo y realiza tu primer pedido.</p>
+                            <a href="{{ url_for('productos') }}" class="btn btn-outline-primary btn-sm rounded-3 px-3">Explorar Catálogo</a>
                         </td>
                     </tr>
                     {% endfor %}

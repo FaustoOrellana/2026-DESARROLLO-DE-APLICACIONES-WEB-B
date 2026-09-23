@@ -2,6 +2,14 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, SubmitField
 from wtforms.validators import DataRequired, Length, Regexp, Optional
 
+def coerce_int_or_none(valor):
+    """Convierte de forma segura strings vacíos a None y números a int."""
+    if valor is None or str(valor).strip() == '':
+        return None
+    try:
+        return int(valor)
+    except (ValueError, TypeError):
+        return None
 
 class ProveedorForm(FlaskForm):
     nombre = StringField(
@@ -28,14 +36,14 @@ class ProveedorForm(FlaskForm):
     )
     categoria = SelectField(
         'Categoría Principal',
-        coerce=str,
+        coerce=coerce_int_or_none,
         validators=[
             DataRequired(message='Debe seleccionar una categoría principal.')
         ]
     )
     id_ciudad = SelectField(
         'Ciudad',
-        coerce=str,
+        coerce=coerce_int_or_none,
         validators=[
             Optional()
         ]

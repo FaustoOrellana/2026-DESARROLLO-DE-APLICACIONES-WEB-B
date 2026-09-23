@@ -1,6 +1,15 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, DecimalField, IntegerField, SelectField, SubmitField
+from wtforms import StringField, DecimalField, IntegerField, SelectField, SubmitField, TextAreaField
 from wtforms.validators import DataRequired, InputRequired, Length, NumberRange, Optional
+
+def coerce_int_or_none(valor):
+    """Convierte de forma segura strings vacíos a None y números a int."""
+    if valor is None or str(valor).strip() == '':
+        return None
+    try:
+        return int(valor)
+    except (ValueError, TypeError):
+        return None
 
 class ProductoForm(FlaskForm):
     nombre = StringField(
@@ -12,14 +21,14 @@ class ProductoForm(FlaskForm):
     )
     categoria = SelectField(
         'Categoría',
-        coerce=str,
+        coerce=coerce_int_or_none,
         validators=[
             DataRequired(message='Debe seleccionar una categoría válida.')
         ]
     )
     marca = SelectField(
         'Marca',
-        coerce=str,
+        coerce=coerce_int_or_none,
         validators=[
             Optional()
         ]
@@ -37,6 +46,13 @@ class ProductoForm(FlaskForm):
         validators=[
             InputRequired(message='El stock es obligatorio.'),
             NumberRange(min=0, max=10000, message='El stock debe estar entre 0 y 10,000 unidades.')
+        ]
+    )
+    descripcion = TextAreaField(
+        'Descripción',
+        validators=[
+            Optional(),
+            Length(max=500, message='La descripción no puede exceder los 500 caracteres.')
         ]
     )
     submit = SubmitField('Guardar Producto')

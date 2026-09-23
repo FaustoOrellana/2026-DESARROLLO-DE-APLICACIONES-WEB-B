@@ -1,7 +1,15 @@
 from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, DecimalField, DateField, SubmitField
-from wtforms.validators import DataRequired, Length, NumberRange
+from wtforms.validators import DataRequired, Length, Optional, NumberRange
 
+def coerce_int_or_none(valor):
+    """Convierte de forma segura strings vacíos a None y números a int."""
+    if valor is None or str(valor).strip() == '':
+        return None
+    try:
+        return int(valor)
+    except (ValueError, TypeError):
+        return None
 
 class FacturacionForm(FlaskForm):
     numero = StringField(
@@ -12,10 +20,10 @@ class FacturacionForm(FlaskForm):
         ]
     )
     cliente = SelectField(
-        'Cliente',
-        coerce=str,
+        'Cliente / Razón Social',
+        coerce=coerce_int_or_none,
         validators=[
-            DataRequired(message='Debe seleccionar un cliente de la lista.')
+            DataRequired(message='Debe seleccionar un cliente activo.')
         ]
     )
     fecha = DateField(
@@ -29,21 +37,20 @@ class FacturacionForm(FlaskForm):
         'Monto Total ($)',
         places=2,
         validators=[
-            DataRequired(message='El monto es obligatorio.'),
-            NumberRange(min=0.01, max=1000000.0, message='El monto debe ser superior a 0.00.')
+            Optional(),
+            NumberRange(min=0.0, max=1000000.0, message='El monto debe ser un valor positivo.')
         ]
     )
+    # Regla estricta: solo se permite emitir en estado PAGADA
     estado = SelectField(
-        'Estado',
-        coerce=str,
+        'Estado de Cobro',
+        coerce=coerce_int_or_none,
         choices=[
-            ('', 'Seleccione un estado'),
-            ('1', 'Pagada'),
-            ('2', 'Pendiente'),
-            ('3', 'Anulada')
+            (1, 'Pagada (Cobro confirmado)')
         ],
+        default=1,
         validators=[
-            DataRequired(message='Debe seleccionar un estado válido.')
+            DataRequired(message='La factura solo se puede emitir con cobro confirmado (Pagada).')
         ]
     )
-    submit = SubmitField('Guardar Factura')
+    submit = SubmitField('Emitir y Procesar Factura')
