@@ -3439,20 +3439,20 @@ def asegurar_esquema_notas_credito(conn):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS public.notas_credito (
                 id SERIAL PRIMARY KEY,
+                id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 establecimiento VARCHAR(3) NOT NULL DEFAULT '001',
                 punto_emision VARCHAR(3) NOT NULL DEFAULT '001',
                 secuencial VARCHAR(9) NOT NULL,
                 numero_comprobante VARCHAR(30) GENERATED ALWAYS AS (establecimiento || '-' || punto_emision || '-' || secuencial) STORED UNIQUE,
-                id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-                numero_factura_modificada VARCHAR(30) NOT NULL,
-                id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-                id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
                 fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
+                numero_factura_modificada VARCHAR(30) NOT NULL,
+                fecha_emision_factura_modificada DATE NOT NULL DEFAULT CURRENT_DATE,
                 motivo_modificacion TEXT NOT NULL,
                 subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-                estado VARCHAR(20) NOT NULL DEFAULT 'AUTORIZADA',
+                estado VARCHAR(20) NOT NULL DEFAULT 'EMITIDA',
+                usuario_creacion VARCHAR(50) DEFAULT 'sistema',
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -3732,7 +3732,18 @@ def emitir_nota_credito(id_factura):
                     sistema=SISTEMA_INFO
                 )
 
-            # 1. Obtener el siguiente número secuencial (cadena de 9 dígitos, ej: '000000001') para establecimiento '001' y punto_emision '001'
+            # 1. Obtener datos de la factura que se modifica
+            cursor.execute("""
+                SELECT COALESCE(to_jsonb(f)->>'numero_comprobante', f.numero) AS numero_comprobante,
+                       COALESCE((to_jsonb(f)->>'fecha_emision')::date, f.fecha) AS fecha_emision
+                FROM public.facturas f
+                WHERE f.id = %s;
+            """, (fac_id,))
+            row_fac_mod = cursor.fetchone()
+            numero_factura_modificada = str(extraer_columna(row_fac_mod, 'numero_comprobante', 0, fac_numero) or fac_numero).strip()
+            fecha_emision_factura_modificada = extraer_columna(row_fac_mod, 'fecha_emision', 1, fac_fecha) or fac_fecha
+
+            # 2. Obtener el siguiente secuencial numérico formateado a 9 dígitos
             cursor.execute(r"""
                 SELECT LPAD((COALESCE(MAX(NULLIF(regexp_replace(secuencial, '\D', '', 'g'), '')::integer), 0) + 1)::text, 9, '0') AS siguiente_secuencial
                 FROM public.notas_credito
@@ -3741,56 +3752,41 @@ def emitir_nota_credito(id_factura):
             row_sec = cursor.fetchone()
             siguiente_secuencial = str(extraer_columna(row_sec, 'siguiente_secuencial', 0, '000000001') or '000000001')
 
-            # 2. Obtener el número de comprobante de la factura original modificada
-            numero_factura_modificada = str(fac_numero or '').strip()
-            if not numero_factura_modificada:
-                cursor.execute("SELECT numero FROM public.facturas WHERE id = %s;", (fac_id,))
-                row_fac_num = cursor.fetchone()
-                numero_factura_modificada = str(extraer_columna(row_fac_num, 'numero', 0, '') or '').strip()
+            # 3. Ejecutar el INSERT en public.notas_credito excluyendo 'numero_comprobante' (GENERATED ALWAYS)
+            subtotal_devuelto = subtotal_15_acum
+            iva_devuelto = iva_acum
+            total_devuelto = total_acum
+            usuario_actual = session.get('usuario') or getattr(current_user, 'usuario', 'admin')
 
-            # Detectar columnas existentes en public.notas_credito para inserción segura
-            cursor.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'notas_credito';
-            """)
-            cols_nc = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
-
-            col_motivo_nc = 'motivo_modificacion' if 'motivo_modificacion' in cols_nc else 'motivo'
-            col_subtotal_nc = 'subtotal' if 'subtotal' in cols_nc else 'subtotal_15'
-            columnas_insert = [
-                'establecimiento', 'punto_emision', 'secuencial',
-                'id_factura', 'numero_factura_modificada', 'id_cliente',
-                col_motivo_nc, col_subtotal_nc, 'iva', 'total'
-            ]
-            valores_insert = [
-                '001', '001', siguiente_secuencial,
-                fac_id, numero_factura_modificada, fac_id_cliente,
-                motivo_final, subtotal_15_acum, iva_acum, total_acum
-            ]
-
-            if 'fecha_factura_modificada' in cols_nc:
-                columnas_insert.append('fecha_factura_modificada')
-                valores_insert.append(fac_fecha)
-            if 'id_usuario' in cols_nc:
-                columnas_insert.append('id_usuario')
-                valores_insert.append(int(current_user.id))
-            if 'subtotal_0' in cols_nc:
-                columnas_insert.append('subtotal_0')
-                valores_insert.append(subtotal_0_acum)
-            if 'estado' in cols_nc:
-                columnas_insert.append('estado')
-                valores_insert.append('AUTORIZADA')
-
-            placeholders_nc = ', '.join(['%s'] * len(columnas_insert))
-            cols_nc_sql = ', '.join(columnas_insert)
-
-            # Insertar cabecera en public.notas_credito (numero_comprobante es GENERATED ALWAYS a partir de secuencial)
-            cursor.execute(f'''
-                INSERT INTO public.notas_credito ({cols_nc_sql})
-                VALUES ({placeholders_nc})
-                RETURNING id, numero_comprobante;
-            ''', tuple(valores_insert))
+            cursor.execute('''
+                INSERT INTO public.notas_credito (
+                    id_factura,
+                    establecimiento,
+                    punto_emision,
+                    secuencial,
+                    fecha_emision,
+                    numero_factura_modificada,
+                    fecha_emision_factura_modificada,
+                    motivo_modificacion,
+                    subtotal,
+                    iva,
+                    total,
+                    estado,
+                    usuario_creacion
+                ) VALUES (
+                    %s, '001', '001', %s, CURRENT_DATE, %s, %s, %s, %s, %s, %s, 'EMITIDA', %s
+                ) RETURNING id, numero_comprobante;
+            ''', (
+                fac_id,
+                siguiente_secuencial,
+                numero_factura_modificada,
+                fecha_emision_factura_modificada,
+                motivo_final,
+                subtotal_devuelto,
+                iva_devuelto,
+                total_devuelto,
+                usuario_actual
+            ))
             res_nc = cursor.fetchone()
             id_nota_credito = int(extraer_columna(res_nc, 'id', 0))
             numero_nc = str(extraer_columna(res_nc, 'numero_comprobante', 1, secuencial_nc) or secuencial_nc)
@@ -3896,7 +3892,7 @@ def notas_credito():
                        COALESCE(SUM(nc.total), 0) AS suma_total
                 FROM public.notas_credito nc
                 INNER JOIN public.facturas f ON nc.id_factura = f.id
-                INNER JOIN public.clientes c ON nc.id_cliente = c.id
+                INNER JOIN public.clientes c ON f.id_cliente = c.id
                 {where_sql};
             ''', tuple(params))
             row_meta = cursor.fetchone()
@@ -3928,7 +3924,7 @@ def notas_credito():
                        ), 'Sin ítems') AS resumen_items
                 FROM public.notas_credito nc
                 INNER JOIN public.facturas f ON nc.id_factura = f.id
-                INNER JOIN public.clientes c ON nc.id_cliente = c.id
+                INNER JOIN public.clientes c ON f.id_cliente = c.id
                 {where_sql}
                 ORDER BY nc.id DESC
                 LIMIT %s OFFSET %s;
@@ -4012,7 +4008,7 @@ def descargar_nota_credito(id_nc):
                    COALESCE(c.telefono, '') AS telefono
             FROM public.notas_credito nc
             INNER JOIN public.facturas f ON nc.id_factura = f.id
-            INNER JOIN public.clientes c ON nc.id_cliente = c.id
+            INNER JOIN public.clientes c ON f.id_cliente = c.id
             WHERE nc.id = %s;
         ''', (id_nc,))
         fila_nc = cursor.fetchone()
