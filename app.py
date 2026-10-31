@@ -3441,8 +3441,8 @@ def asegurar_esquema_notas_credito(conn):
                 id SERIAL PRIMARY KEY,
                 establecimiento VARCHAR(3) NOT NULL DEFAULT '001',
                 punto_emision VARCHAR(3) NOT NULL DEFAULT '001',
-                secuencial INT NOT NULL,
-                numero_comprobante VARCHAR(30) GENERATED ALWAYS AS (establecimiento || '-' || punto_emision || '-' || LPAD(secuencial::TEXT, 9, '0')) STORED UNIQUE,
+                secuencial VARCHAR(9) NOT NULL,
+                numero_comprobante VARCHAR(30) GENERATED ALWAYS AS (establecimiento || '-' || punto_emision || '-' || secuencial) STORED UNIQUE,
                 id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -3731,14 +3731,14 @@ def emitir_nota_credito(id_factura):
                     sistema=SISTEMA_INFO
                 )
 
-            # 1. Obtener el siguiente número secuencial entero para establecimiento '001' y punto_emision '001'
-            cursor.execute("""
-                SELECT COALESCE(MAX(secuencial), 0) + 1 AS siguiente_secuencial
+            # 1. Obtener el siguiente número secuencial (cadena de 9 dígitos, ej: '000000001') para establecimiento '001' y punto_emision '001'
+            cursor.execute(r"""
+                SELECT LPAD((COALESCE(MAX(NULLIF(regexp_replace(secuencial, '\D', '', 'g'), '')::integer), 0) + 1)::text, 9, '0') AS siguiente_secuencial
                 FROM public.notas_credito
                 WHERE establecimiento = '001' AND punto_emision = '001';
             """)
             row_sec = cursor.fetchone()
-            siguiente_secuencial = int(extraer_columna(row_sec, 'siguiente_secuencial', 0, 1) or 1)
+            siguiente_secuencial = str(extraer_columna(row_sec, 'siguiente_secuencial', 0, '000000001') or '000000001')
 
             # Detectar columnas existentes en public.notas_credito para inserción segura
             cursor.execute("""
