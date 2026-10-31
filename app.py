@@ -3439,7 +3439,10 @@ def asegurar_esquema_notas_credito(conn):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS public.notas_credito (
                 id SERIAL PRIMARY KEY,
-                numero_comprobante VARCHAR(30) GENERATED ALWAYS AS ('001-001-' || LPAD(id::TEXT, 9, '0')) STORED UNIQUE,
+                establecimiento VARCHAR(3) NOT NULL DEFAULT '001',
+                punto_emision VARCHAR(3) NOT NULL DEFAULT '001',
+                secuencial INT NOT NULL,
+                numero_comprobante VARCHAR(30) GENERATED ALWAYS AS (establecimiento || '-' || punto_emision || '-' || LPAD(secuencial::TEXT, 9, '0')) STORED UNIQUE,
                 id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -3728,6 +3731,15 @@ def emitir_nota_credito(id_factura):
                     sistema=SISTEMA_INFO
                 )
 
+            # 1. Obtener el siguiente número secuencial entero para establecimiento '001' y punto_emision '001'
+            cursor.execute("""
+                SELECT COALESCE(MAX(secuencial), 0) + 1 AS siguiente_secuencial
+                FROM public.notas_credito
+                WHERE establecimiento = '001' AND punto_emision = '001';
+            """)
+            row_sec = cursor.fetchone()
+            siguiente_secuencial = int(extraer_columna(row_sec, 'siguiente_secuencial', 0, 1) or 1)
+
             # Detectar columnas existentes en public.notas_credito para inserción segura
             cursor.execute("""
                 SELECT column_name
@@ -3738,8 +3750,14 @@ def emitir_nota_credito(id_factura):
 
             col_motivo_nc = 'motivo_modificacion' if 'motivo_modificacion' in cols_nc else 'motivo'
             col_subtotal_nc = 'subtotal' if 'subtotal' in cols_nc else 'subtotal_15'
-            columnas_insert = ['id_factura', 'id_cliente', col_motivo_nc, col_subtotal_nc, 'iva', 'total']
-            valores_insert = [fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum]
+            columnas_insert = [
+                'establecimiento', 'punto_emision', 'secuencial',
+                'id_factura', 'id_cliente', col_motivo_nc, col_subtotal_nc, 'iva', 'total'
+            ]
+            valores_insert = [
+                '001', '001', siguiente_secuencial,
+                fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum
+            ]
 
             if 'id_usuario' in cols_nc:
                 columnas_insert.append('id_usuario')
@@ -3754,7 +3772,7 @@ def emitir_nota_credito(id_factura):
             placeholders_nc = ', '.join(['%s'] * len(columnas_insert))
             cols_nc_sql = ', '.join(columnas_insert)
 
-            # Insertar cabecera en public.notas_credito (numero_comprobante es GENERATED ALWAYS en PostgreSQL)
+            # Insertar cabecera en public.notas_credito (numero_comprobante es GENERATED ALWAYS a partir de secuencial)
             cursor.execute(f'''
                 INSERT INTO public.notas_credito ({cols_nc_sql})
                 VALUES ({placeholders_nc})
