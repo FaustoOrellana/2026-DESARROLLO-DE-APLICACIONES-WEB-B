@@ -559,16 +559,16 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION public.fn_reintegrar_stock_nc()
 RETURNS TRIGGER AS $$
 BEGIN
+    IF NEW.total IS NULL OR NEW.total = 0 THEN
+        NEW.total := ROUND(NEW.cantidad * NEW.precio_unitario, 2);
+    END IF;
+
     IF NEW.subtotal IS NULL OR NEW.subtotal = 0 THEN
-        NEW.subtotal := ROUND(NEW.cantidad * NEW.precio_unitario, 2);
+        NEW.subtotal := ROUND(NEW.total / 1.15, 2);
     END IF;
 
     IF NEW.iva IS NULL OR NEW.iva = 0 THEN
-        NEW.iva := ROUND(NEW.subtotal * 0.15, 2);
-    END IF;
-
-    IF NEW.total IS NULL OR NEW.total = 0 THEN
-        NEW.total := ROUND(NEW.subtotal + NEW.iva, 2);
+        NEW.iva := ROUND(NEW.total - NEW.subtotal, 2);
     END IF;
 
     UPDATE public.productos

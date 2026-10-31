@@ -729,7 +729,7 @@ def generar_pdf_ride_nota_credito_sri(nc, detalles):
         cantidad = int(item.get('cantidad', 1))
         nombre_prod = str(item.get('nombre', 'Producto'))
         precio_u = round(float(item.get('precio_unitario', 0.0)), 2)
-        subtotal_item = round(float(item.get('subtotal', cantidad * precio_u)), 2)
+        total_item = round(float(item.get('total') or (cantidad * precio_u)), 2)
 
         filas_detalle.append([
             Paragraph(cod_prod, style_td_center),
@@ -737,7 +737,7 @@ def generar_pdf_ride_nota_credito_sri(nc, detalles):
             Paragraph(nombre_prod, style_normal),
             Paragraph(f"${precio_u:,.2f}", style_td_right),
             Paragraph("$0.00", style_td_right),
-            Paragraph(f"${subtotal_item:,.2f}", style_td_right)
+            Paragraph(f"${total_item:,.2f}", style_td_right)
         ])
 
     tabla_detalles = Table(

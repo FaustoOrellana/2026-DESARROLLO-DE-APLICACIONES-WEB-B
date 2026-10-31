@@ -244,7 +244,7 @@
 
 <script>
 function recalcularNotaCredito() {
-    let subtotal15 = 0.0;
+    let totalNC = 0.0;
 
     document.querySelectorAll('.fila-item-nc').forEach(fila => {
         const precio = parseFloat(fila.getAttribute('data-precio')) || 0.0;
@@ -261,14 +261,14 @@ function recalcularNotaCredito() {
             inputCant.value = maxDisp;
         }
 
-        const subLinea = Math.round((cant * precio) * 100) / 100;
-        celdaSub.textContent = '$' + subLinea.toFixed(2);
-        subtotal15 += subLinea;
+        const totalItem = Math.round((cant * precio) * 100) / 100;
+        celdaSub.textContent = '$' + totalItem.toFixed(2);
+        totalNC += totalItem;
     });
 
-    subtotal15 = Math.round(subtotal15 * 100) / 100;
-    const iva15 = Math.round((subtotal15 * 0.15) * 100) / 100;
-    const totalNC = Math.round((subtotal15 + iva15) * 100) / 100;
+    totalNC = Math.round(totalNC * 100) / 100;
+    const subtotal15 = Math.round((totalNC / 1.15) * 100) / 100;
+    const iva15 = Math.round((totalNC - subtotal15) * 100) / 100;
 
     document.getElementById('lblSubtotal15').textContent = '$' + subtotal15.toFixed(2);
     document.getElementById('lblIva15').textContent = '$' + iva15.toFixed(2);
