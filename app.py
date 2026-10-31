@@ -2339,6 +2339,52 @@ def facturacion():
     )
 
 
+def resolver_id_estado_factura(cursor, valor_estado):
+    """
+    Resuelve de forma dinámica el ID y nombre oficial ('PAGADA', 'PENDIENTE', 'ANULADA')
+    consultando la tabla 'estados_factura' en PostgreSQL, soportando tanto valores
+    textuales ('PAGADA', 'Pagada', 'PENDIENTE', 'ANULADA') como IDs numéricos.
+    """
+    cursor.execute("SELECT id, UPPER(TRIM(nombre)) AS nombre_upper FROM estados_factura ORDER BY id ASC;")
+    filas_estados = cursor.fetchall()
+
+    mapa_nombre_a_id = {}
+    mapa_id_a_nombre = {}
+    for fila in filas_estados:
+        eid = int(extraer_columna(fila, 'id', 0, 0) or 0)
+        enom = str(extraer_columna(fila, 'nombre_upper', 1, '') or '').strip().upper()
+        if eid > 0 and enom:
+            mapa_id_a_nombre[eid] = enom
+            if 'PAGAD' in enom:
+                mapa_nombre_a_id['PAGADA'] = eid
+            elif 'PENDIENT' in enom:
+                mapa_nombre_a_id['PENDIENTE'] = eid
+            elif 'ANULAD' in enom:
+                mapa_nombre_a_id['ANULADA'] = eid
+
+    val_str = str(valor_estado or '').strip().upper()
+
+    if 'PAGAD' in val_str:
+        return mapa_nombre_a_id.get('PAGADA', 2), 'PAGADA'
+    if 'PENDIENT' in val_str:
+        return mapa_nombre_a_id.get('PENDIENTE', 1), 'PENDIENTE'
+    if 'ANULAD' in val_str or val_str == '3':
+        return mapa_nombre_a_id.get('ANULADA', 3), 'ANULADA'
+
+    if val_str.isdigit():
+        id_num = int(val_str)
+        if id_num in mapa_id_a_nombre:
+            nom_db = mapa_id_a_nombre[id_num]
+            if 'PAGAD' in nom_db:
+                return id_num, 'PAGADA'
+            if 'PENDIENT' in nom_db:
+                return id_num, 'PENDIENTE'
+            if 'ANULAD' in nom_db:
+                return id_num, 'ANULADA'
+
+    return None, None
+
+
 def generar_siguiente_numero_factura(cursor):
     """
     Calcula el siguiente correlativo secuencial oficial del SRI con formato
@@ -2433,7 +2479,7 @@ def formulario_facturacion():
 
             fecha = form.fecha.data
             id_cliente = form.cliente.data
-            id_estado = 1  # Emisión oficial confirmada (PAGADA)
+            id_estado, _ = resolver_id_estado_factura(cursor, 'PAGADA')  # Emisión oficial confirmada (PAGADA)
 
             metodo_input = request.form.get('id_metodo_pago', '1')
             try:
@@ -3158,8 +3204,8 @@ def descargar_factura(id_factura=None, id=None):
         nombre_estado = str(extraer_columna(fila_fac, 'estado', 5, '')).strip()
         num_factura = extraer_columna(fila_fac, 'numero', 1)
 
-        # Regla estricta de producción: Solo facturas PAGADAS (id_estado = 1)
-        if id_estado != 1 or nombre_estado.lower() != 'pagada':
+        # Regla estricta de producción: Solo facturas PAGADAS
+        if id_estado == 3 or nombre_estado.strip().upper() != 'PAGADA':
             estado_aviso = nombre_estado if nombre_estado else "Pendiente de Pago"
             flash(
                 f"Bloqueo comercial: La factura {num_factura} se encuentra en estado '{estado_aviso}'. "
@@ -3241,56 +3287,88 @@ def cambiar_estado_factura(id_factura):
         flash('No tiene permisos para modificar el estado de las facturas.', 'danger')
         return redirect(url_for('dashboard'))
 
-    # Corregido para leer 'nuevo_estado' enviado por los selectores del dashboard y facturación
-    nuevo_estado = request.form.get('nuevo_estado')
-    try:
-        nuevo_estado_id = int(nuevo_estado)
-    except (ValueError, TypeError):
+    nuevo_estado_raw = (
+        request.form.get('nuevo_estado')
+        or request.form.get('estado')
+        or ''
+    ).strip()
+
+    if not nuevo_estado_raw:
         flash('Estado de factura inválido.', 'warning')
-        return redirect(request.referrer or url_for('dashboard'))
+        return redirect(request.referrer or url_for('facturacion'))
 
     conn = obtener_conexion()
     if not conn:
         flash('Error de conexión a la base de datos.', 'danger')
-        return redirect(request.referrer or url_for('dashboard'))
+        return redirect(request.referrer or url_for('facturacion'))
 
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT numero, id_estado FROM facturas WHERE id = %s AND activo = TRUE;', (id_factura,))
+        nuevo_estado_id, nombre_estado_nuevo = resolver_id_estado_factura(cursor, nuevo_estado_raw)
+        if not nuevo_estado_id:
+            cursor.close()
+            flash('Estado de factura inválido.', 'warning')
+            return redirect(request.referrer or url_for('facturacion'))
+
+        cursor.execute('''
+            SELECT f.numero, f.id_estado, UPPER(COALESCE(e.nombre, '')) AS estado_actual
+            FROM facturas f
+            LEFT JOIN estados_factura e ON f.id_estado = e.id
+            WHERE f.id = %s AND f.activo = TRUE;
+        ''', (id_factura,))
         factura = cursor.fetchone()
         if not factura:
             flash('Factura no encontrada o inactiva.', 'warning')
             cursor.close()
-            return redirect(request.referrer or url_for('dashboard'))
+            return redirect(request.referrer or url_for('facturacion'))
 
         num_factura = extraer_columna(factura, 'numero', 0)
-        estado_anterior_id = int(extraer_columna(factura, 'id_estado', 1, 0))
+        estado_anterior_id = int(extraer_columna(factura, 'id_estado', 1, 0) or 0)
+        estado_anterior_txt = str(extraer_columna(factura, 'estado_actual', 2, '') or '').upper()
+        estaba_anulada = (estado_anterior_id == 3 or 'ANULAD' in estado_anterior_txt)
 
-        # Reintegrar inventario únicamente si cambia a Anulada (3) y no estaba anulada previamente
-        if nuevo_estado_id == 3 and estado_anterior_id != 3:
+        # Reintegrar inventario únicamente si cambia a Anulada y no estaba anulada previamente
+        if nombre_estado_nuevo == 'ANULADA' and not estaba_anulada:
             cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (id_factura,))
             detalles = cursor.fetchall()
             for d in detalles:
                 pid = extraer_columna(d, 'id_producto', 0)
                 cant = extraer_columna(d, 'cantidad', 1)
-                cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
-                               (cant, current_user.usuario, pid))
+                cursor.execute(
+                    'UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;',
+                    (cant, current_user.usuario, pid)
+                )
 
+        # Verificar si la tabla facturas posee columna textual 'estado' además de 'id_estado'
         cursor.execute('''
-            UPDATE facturas 
-            SET id_estado = %s, modified_by = %s 
-            WHERE id = %s;
-        ''', (nuevo_estado_id, current_user.usuario, id_factura))
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'facturas' AND column_name = 'estado';
+        ''')
+        tiene_col_estado_texto = cursor.fetchone() is not None
+
+        if tiene_col_estado_texto:
+            cursor.execute('''
+                UPDATE facturas
+                SET id_estado = %s, estado = %s, modified_by = %s
+                WHERE id = %s;
+            ''', (nuevo_estado_id, nombre_estado_nuevo, current_user.usuario, id_factura))
+        else:
+            cursor.execute('''
+                UPDATE facturas
+                SET id_estado = %s, modified_by = %s
+                WHERE id = %s;
+            ''', (nuevo_estado_id, current_user.usuario, id_factura))
 
         conn.commit()
         cursor.close()
 
-        if nuevo_estado_id == 1:
+        if nombre_estado_nuevo == 'PAGADA':
             flash(f'¡Cobro validado! La factura {num_factura} quedó registrada como PAGADA.', 'success')
-        elif nuevo_estado_id == 3:
+        elif nombre_estado_nuevo == 'ANULADA':
             flash(f'La factura {num_factura} fue ANULADA y el stock reincorporado al catálogo.', 'info')
         else:
-            flash(f'Estado de la factura {num_factura} actualizado correctamente.', 'primary')
+            flash(f'Estado de la factura {num_factura} actualizado a PENDIENTE correctamente.', 'primary')
 
     except Exception as e:
         conn.rollback()
@@ -3298,8 +3376,7 @@ def cambiar_estado_factura(id_factura):
     finally:
         conn.close()
 
-    # Redirige de vuelta a la página de origen (Dashboard o Facturación) de manera fluida
-    return redirect(request.referrer or url_for('dashboard'))
+    return redirect(request.referrer or url_for('facturacion'))
 
 
 # 7. GESTIÓN DEL CARRITO EN SESIÓN Y FACTURACIÓN DIRECTA PAGADA
@@ -3511,10 +3588,10 @@ def finalizar_compra():
         if tipo_tarjeta == 'credito':
             diferido_meses = request.form.get('diferido_meses', '3')
 
-        id_estado_factura = 1  # 1 = Pagada (Autorizada por pasarela de tarjeta)
+        estado_objetivo_compra = 'PAGADA'  # Autorizada por pasarela de tarjeta
         mensaje_exito = '¡Pago con tarjeta autorizado con éxito! Se ha emitido su factura oficial.'
     else:
-        id_estado_factura = 2  # 2 = Pendiente de validación manual
+        estado_objetivo_compra = 'PENDIENTE'  # Pendiente de validación manual
         mensaje_exito = '¡Pedido registrado con éxito! Su orden se encuentra en estado Pendiente de validación.'
 
     conn = obtener_conexion()
@@ -3524,6 +3601,7 @@ def finalizar_compra():
 
     try:
         cursor = conn.cursor()
+        id_estado_factura, _ = resolver_id_estado_factura(cursor, estado_objetivo_compra)
 
         # 1. Obtener cliente_id vinculado
         cursor.execute('SELECT id FROM clientes WHERE usuario_id = %s AND activo = TRUE LIMIT 1;', (int(current_user.id),))
