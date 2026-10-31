@@ -247,6 +247,7 @@ CREATE TABLE public.detalle_facturas (
 CREATE TABLE public.notas_credito (
     id SERIAL PRIMARY KEY,
     id_factura INT NOT NULL,
+    id_cliente INT NOT NULL,
     establecimiento VARCHAR(3) NOT NULL DEFAULT '001',
     punto_emision VARCHAR(3) NOT NULL DEFAULT '001',
     secuencial VARCHAR(9) NOT NULL,
@@ -258,11 +259,12 @@ CREATE TABLE public.notas_credito (
     subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (subtotal >= 0),
     iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (iva >= 0),
     total NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (total >= 0),
-    estado VARCHAR(20) NOT NULL DEFAULT 'EMITIDA',
-    usuario_creacion VARCHAR(50) DEFAULT 'sistema',
+    created_by VARCHAR(50) DEFAULT 'sistema',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_nc_factura FOREIGN KEY (id_factura)
-        REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_nc_cliente FOREIGN KEY (id_cliente)
+        REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 -- 4.4 Detalle de Notas de Crédito

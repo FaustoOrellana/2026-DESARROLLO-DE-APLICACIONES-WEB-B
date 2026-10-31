@@ -3440,6 +3440,7 @@ def asegurar_esquema_notas_credito(conn):
             CREATE TABLE IF NOT EXISTS public.notas_credito (
                 id SERIAL PRIMARY KEY,
                 id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 establecimiento VARCHAR(3) NOT NULL DEFAULT '001',
                 punto_emision VARCHAR(3) NOT NULL DEFAULT '001',
                 secuencial VARCHAR(9) NOT NULL,
@@ -3451,8 +3452,7 @@ def asegurar_esquema_notas_credito(conn):
                 subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-                estado VARCHAR(20) NOT NULL DEFAULT 'EMITIDA',
-                usuario_creacion VARCHAR(50) DEFAULT 'sistema',
+                created_by VARCHAR(50) DEFAULT 'sistema',
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -3732,18 +3732,20 @@ def emitir_nota_credito(id_factura):
                     sistema=SISTEMA_INFO
                 )
 
-            # 1. Obtener datos de la factura que se modifica
+            # 1. Consulta de la factura origen
             cursor.execute("""
                 SELECT COALESCE(to_jsonb(f)->>'numero_comprobante', f.numero) AS numero_comprobante,
-                       COALESCE((to_jsonb(f)->>'fecha_emision')::date, f.fecha) AS fecha_emision
+                       COALESCE((to_jsonb(f)->>'fecha_emision')::date, f.fecha) AS fecha_emision,
+                       f.id_cliente
                 FROM public.facturas f
                 WHERE f.id = %s;
-            """, (fac_id,))
+            """, (id_factura,))
             row_fac_mod = cursor.fetchone()
             numero_factura_modificada = str(extraer_columna(row_fac_mod, 'numero_comprobante', 0, fac_numero) or fac_numero).strip()
             fecha_emision_factura_modificada = extraer_columna(row_fac_mod, 'fecha_emision', 1, fac_fecha) or fac_fecha
+            id_cliente = int(extraer_columna(row_fac_mod, 'id_cliente', 2, fac_id_cliente) or fac_id_cliente)
 
-            # 2. Obtener el siguiente secuencial numérico formateado a 9 dígitos
+            # 2. Obtención del siguiente secuencial (formato 9 dígitos)
             cursor.execute(r"""
                 SELECT LPAD((COALESCE(MAX(NULLIF(regexp_replace(secuencial, '\D', '', 'g'), '')::integer), 0) + 1)::text, 9, '0') AS siguiente_secuencial
                 FROM public.notas_credito
@@ -3752,7 +3754,7 @@ def emitir_nota_credito(id_factura):
             row_sec = cursor.fetchone()
             siguiente_secuencial = str(extraer_columna(row_sec, 'siguiente_secuencial', 0, '000000001') or '000000001')
 
-            # 3. Ejecutar el INSERT en public.notas_credito excluyendo 'numero_comprobante' (GENERATED ALWAYS)
+            # 3. Inserción de la cabecera en public.notas_credito
             subtotal_devuelto = subtotal_15_acum
             iva_devuelto = iva_acum
             total_devuelto = total_acum
@@ -3761,6 +3763,7 @@ def emitir_nota_credito(id_factura):
             cursor.execute('''
                 INSERT INTO public.notas_credito (
                     id_factura,
+                    id_cliente,
                     establecimiento,
                     punto_emision,
                     secuencial,
@@ -3771,13 +3774,13 @@ def emitir_nota_credito(id_factura):
                     subtotal,
                     iva,
                     total,
-                    estado,
-                    usuario_creacion
+                    created_by
                 ) VALUES (
-                    %s, '001', '001', %s, CURRENT_DATE, %s, %s, %s, %s, %s, %s, 'EMITIDA', %s
+                    %s, %s, '001', '001', %s, CURRENT_DATE, %s, %s, %s, %s, %s, %s, %s
                 ) RETURNING id, numero_comprobante;
             ''', (
-                fac_id,
+                id_factura,
+                id_cliente,
                 siguiente_secuencial,
                 numero_factura_modificada,
                 fecha_emision_factura_modificada,
@@ -3791,18 +3794,26 @@ def emitir_nota_credito(id_factura):
             id_nota_credito = int(extraer_columna(res_nc, 'id', 0))
             numero_nc = str(extraer_columna(res_nc, 'numero_comprobante', 1, secuencial_nc) or secuencial_nc)
 
-            # Insertar detalle en public.detalle_notas_credito (el trigger trg_reintegrar_stock_nc devuelve el stock automáticamente)
+            # 4. Inserción de los ítems en public.detalle_notas_credito (el trigger trg_reintegrar_stock_nc devuelve el stock automáticamente)
             for item_nc in lineas_devolucion:
                 cursor.execute('''
                     INSERT INTO public.detalle_notas_credito (
-                        id_nota_credito, id_producto, cantidad, precio_unitario, subtotal
-                    ) VALUES (%s, %s, %s, %s, %s);
+                        id_nota_credito,
+                        id_producto,
+                        cantidad,
+                        precio_unitario,
+                        subtotal,
+                        iva,
+                        total
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s);
                 ''', (
                     id_nota_credito,
                     item_nc['id_producto'],
                     item_nc['cantidad'],
                     item_nc['precio_unitario'],
-                    item_nc['subtotal']
+                    item_nc['subtotal'],
+                    item_nc['iva'],
+                    item_nc['total']
                 ))
 
             # Garantizar registro explícito en auditoría si no se disparó por trigger
