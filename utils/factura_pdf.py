@@ -515,3 +515,310 @@ def generar_pdf_ride_sri(factura, detalles):
     buffer.seek(0)
     return buffer, numero_sri
 
+
+def generar_pdf_ride_nota_credito_sri(nc, detalles):
+    """
+    Genera en memoria (io.BytesIO) el PDF RIDE oficial del SRI para una Nota de Crédito (Código 04).
+    Retorna (buffer_pdf, numero_sri_formateado).
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        leftMargin=1.2 * cm,
+        rightMargin=1.2 * cm,
+        topMargin=1.0 * cm,
+        bottomMargin=1.2 * cm,
+        title=f"RIDE_NC_{nc.get('numero_comprobante', '')}"
+    )
+
+    ancho_util = letter[0] - (2.4 * cm)
+    styles = getSampleStyleSheet()
+
+    style_normal = ParagraphStyle(
+        'SRINCNormal',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor('#1e293b')
+    )
+    style_bold = ParagraphStyle(
+        'SRINCBold',
+        parent=style_normal,
+        fontName='Helvetica-Bold',
+        fontSize=8.5,
+        leading=11
+    )
+    style_title_emisor = ParagraphStyle(
+        'SRINCTitleEmisor',
+        parent=style_bold,
+        fontSize=12,
+        leading=14,
+        textColor=colors.HexColor('#0f172a')
+    )
+    style_title_doc = ParagraphStyle(
+        'SRINCTitleDoc',
+        parent=style_bold,
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor('#b91c1c')
+    )
+    style_clave = ParagraphStyle(
+        'SRINCClave',
+        parent=style_normal,
+        fontName='Courier-Bold',
+        fontSize=7.2,
+        leading=9.5,
+        textColor=colors.HexColor('#0f172a')
+    )
+    style_small = ParagraphStyle(
+        'SRINCSmall',
+        parent=style_normal,
+        fontSize=7.5,
+        leading=9.5,
+        textColor=colors.HexColor('#334155')
+    )
+    style_th = ParagraphStyle(
+        'SRINCTH',
+        parent=style_bold,
+        fontSize=7.8,
+        leading=10,
+        alignment=1,
+        textColor=colors.white
+    )
+    style_td_right = ParagraphStyle(
+        'SRINCTDRight',
+        parent=style_normal,
+        fontSize=8,
+        leading=10,
+        alignment=2
+    )
+    style_td_center = ParagraphStyle(
+        'SRINCTDCenter',
+        parent=style_normal,
+        fontSize=8,
+        leading=10,
+        alignment=1
+    )
+
+    id_nc = nc.get('id', 1)
+    numero_sri = formatear_numero_sri(nc.get('numero_comprobante') or nc.get('numero'), id_nc)
+    fecha_emision = nc.get('fecha_emision') or nc.get('fecha') or datetime.now().strftime('%Y-%m-%d')
+    if hasattr(fecha_emision, 'strftime'):
+        fecha_str = fecha_emision.strftime('%d/%m/%Y')
+        fecha_autorizacion_str = fecha_emision.strftime('%d/%m/%Y 11:30:00')
+    else:
+        fecha_str = str(fecha_emision)
+        fecha_autorizacion_str = f"{fecha_str} 11:30:00"
+
+    # Clave de acceso con código 04 (Nota de Crédito)
+    clave_base = generar_clave_acceso_sri(fecha_emision, EMISOR_SRI['ruc'], numero_sri, id_nc)
+    cadena_48_nc = clave_base[:8] + "04" + clave_base[10:48]
+    clave_acceso = f"{cadena_48_nc}{calcular_digito_modulo11(cadena_48_nc)}"
+
+    elementos = []
+    logo_flowable = obtener_elemento_logo_ride(ancho_max_pt=145, alto_max_pt=55)
+
+    col_emisor = []
+    if logo_flowable is not None:
+        col_emisor.append(logo_flowable)
+        col_emisor.append(Spacer(1, 5))
+    else:
+        col_emisor.append(Paragraph(f"<b>{EMISOR_SRI['nombre_comercial']}</b>", style_title_emisor))
+        col_emisor.append(Spacer(1, 4))
+
+    col_emisor.extend([
+        Paragraph(f"<b>{EMISOR_SRI['nombre_comercial']}</b>", style_title_emisor),
+        Spacer(1, 3),
+        Paragraph(f"<b>Razón Social:</b> {EMISOR_SRI['razon_social']}", style_normal),
+        Paragraph(f"<b>RUC:</b> {EMISOR_SRI['ruc']}", style_normal),
+        Paragraph(f"<b>Dirección Matriz:</b> {EMISOR_SRI['direccion_matriz']}", style_normal),
+        Paragraph(f"<b>Dirección Sucursal:</b> {EMISOR_SRI['direccion_sucursal']}", style_normal),
+        Spacer(1, 3),
+        Paragraph(f"<b>OBLIGADO A LLEVAR CONTABILIDAD:</b> {EMISOR_SRI['obligado_contabilidad']}", style_normal),
+        Paragraph(f"<b>{EMISOR_SRI['regimen']}</b>", style_bold)
+    ])
+
+    col_tributaria = [
+        Paragraph(f"<b>R.U.C.:</b> {EMISOR_SRI['ruc']}", style_bold),
+        Spacer(1, 3),
+        Paragraph("<b>NOTA DE CRÉDITO</b>", style_title_doc),
+        Spacer(1, 2),
+        Paragraph(f"<b>No.</b> {numero_sri}", style_bold),
+        Spacer(1, 4),
+        Paragraph("<b>NÚMERO DE AUTORIZACIÓN:</b>", style_small),
+        Paragraph(clave_acceso, style_clave),
+        Spacer(1, 3),
+        Paragraph(f"<b>FECHA Y HORA DE AUTORIZACIÓN:</b> {fecha_autorizacion_str}", style_small),
+        Paragraph(f"<b>AMBIENTE:</b> {EMISOR_SRI['ambiente']}", style_small),
+        Paragraph(f"<b>EMISIÓN:</b> {EMISOR_SRI['emision']}", style_small),
+        Spacer(1, 3),
+        Paragraph("<b>CLAVE DE ACCESO:</b>", style_small),
+        Paragraph(clave_acceso, style_clave)
+    ]
+
+    tabla_encabezado = Table(
+        [[col_emisor, col_tributaria]],
+        colWidths=[ancho_util * 0.48, ancho_util * 0.52]
+    )
+    tabla_encabezado.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('BOX', (0, 0), (0, 0), 0.75, colors.HexColor('#cbd5e1')),
+        ('BOX', (1, 0), (1, 0), 1.0, colors.HexColor('#0f172a')),
+        ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#f8fafc')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elementos.append(tabla_encabezado)
+    elementos.append(Spacer(1, 8))
+
+    cliente_nombre = nc.get('cliente') or 'CONSUMIDOR FINAL'
+    cliente_ruc = str(nc.get('ruc') or '9999999999999').strip()
+    factura_mod_num = formatear_numero_sri(nc.get('factura_numero'), nc.get('id_factura', 1))
+    fecha_fac_mod = str(nc.get('factura_fecha') or fecha_str)
+    motivo_mod = str(nc.get('motivo') or 'Devolución total o parcial de bienes')
+
+    filas_comprador = [
+        [
+            Paragraph(f"<b>Razón Social / Nombres y Apellidos:</b> {cliente_nombre}", style_normal),
+            Paragraph(f"<b>Identificación:</b> {cliente_ruc}", style_normal)
+        ],
+        [
+            Paragraph(f"<b>Fecha de Emisión:</b> {fecha_str}", style_normal),
+            Paragraph("<b>Comprobante que se modifica:</b> FACTURA", style_normal)
+        ],
+        [
+            Paragraph(f"<b>No. Comprobante Modificado:</b> {factura_mod_num}", style_normal),
+            Paragraph(f"<b>Fecha Emisión (Comprobante a modificar):</b> {fecha_fac_mod}", style_normal)
+        ],
+        [
+            Paragraph(f"<b>Razón de Modificación:</b> {motivo_mod}", style_normal),
+            Paragraph("", style_normal)
+        ]
+    ]
+
+    tabla_comprador = Table(filas_comprador, colWidths=[ancho_util * 0.58, ancho_util * 0.42])
+    tabla_comprador.setStyle(TableStyle([
+        ('SPAN', (0, 3), (1, 3)),
+        ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor('#94a3b8')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elementos.append(tabla_comprador)
+    elementos.append(Spacer(1, 10))
+
+    encabezados_items = [
+        Paragraph("Cód. Principal", style_th),
+        Paragraph("Cant.", style_th),
+        Paragraph("Descripción", style_th),
+        Paragraph("Precio Unitario", style_th),
+        Paragraph("Descuento", style_th),
+        Paragraph("Precio Total", style_th)
+    ]
+    filas_detalle = [encabezados_items]
+
+    for idx, item in enumerate(detalles, start=1):
+        cod_prod = f"PROD-{int(item.get('id_producto') or idx):04d}"
+        cantidad = int(item.get('cantidad', 1))
+        nombre_prod = str(item.get('nombre', 'Producto'))
+        precio_u = round(float(item.get('precio_unitario', 0.0)), 2)
+        subtotal_item = round(float(item.get('subtotal', cantidad * precio_u)), 2)
+
+        filas_detalle.append([
+            Paragraph(cod_prod, style_td_center),
+            Paragraph(str(cantidad), style_td_center),
+            Paragraph(nombre_prod, style_normal),
+            Paragraph(f"${precio_u:,.2f}", style_td_right),
+            Paragraph("$0.00", style_td_right),
+            Paragraph(f"${subtotal_item:,.2f}", style_td_right)
+        ])
+
+    tabla_detalles = Table(
+        filas_detalle,
+        colWidths=[
+            ancho_util * 0.14,
+            ancho_util * 0.08,
+            ancho_util * 0.42,
+            ancho_util * 0.12,
+            ancho_util * 0.11,
+            ancho_util * 0.13
+        ]
+    )
+    tabla_detalles.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elementos.append(tabla_detalles)
+    elementos.append(Spacer(1, 10))
+
+    subtotal_15 = round(float(nc.get('subtotal_15', 0.0)), 2)
+    subtotal_0 = round(float(nc.get('subtotal_0', 0.0)), 2)
+    iva_15 = round(float(nc.get('iva', 0.0)), 2)
+    valor_total = round(float(nc.get('total', 0.0)), 2)
+
+    tabla_info_adicional = Table(
+        [
+            [Paragraph("<b>INFORMACIÓN ADICIONAL</b>", style_bold)],
+            [Paragraph(f"<b>Documento Modificado:</b> Factura {factura_mod_num}", style_small)],
+            [Paragraph(f"<b>Motivo SRI:</b> {motivo_mod}", style_small)],
+            [Paragraph(f"<b>Email Cliente:</b> {nc.get('email') or 'N/A'}", style_small)]
+        ],
+        colWidths=[ancho_util * 0.54]
+    )
+    tabla_info_adicional.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#94a3b8')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e2e8f0')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+
+    filas_totales = [
+        [Paragraph("SUBTOTAL 15%", style_small), Paragraph(f"${subtotal_15:,.2f}", style_td_right)],
+        [Paragraph("SUBTOTAL 0%", style_small), Paragraph(f"${subtotal_0:,.2f}", style_td_right)],
+        [Paragraph("SUBTOTAL SIN IMPUESTOS", style_small), Paragraph(f"${subtotal_15 + subtotal_0:,.2f}", style_td_right)],
+        [Paragraph("IVA 15%", style_small), Paragraph(f"${iva_15:,.2f}", style_td_right)],
+        [Paragraph("<b>VALOR TOTAL DEVUELTO</b>", style_bold), Paragraph(f"<b>${valor_total:,.2f}</b>", style_td_right)]
+    ]
+    tabla_totales = Table(filas_totales, colWidths=[ancho_util * 0.28, ancho_util * 0.14])
+    tabla_totales.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.6, colors.HexColor('#94a3b8')),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e2e8f0')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+
+    tabla_pie = Table(
+        [[tabla_info_adicional, tabla_totales]],
+        colWidths=[ancho_util * 0.58, ancho_util * 0.42]
+    )
+    tabla_pie.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    elementos.append(tabla_pie)
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer, numero_sri
+
+

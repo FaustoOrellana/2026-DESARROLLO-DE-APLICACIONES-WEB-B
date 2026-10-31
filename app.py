@@ -34,7 +34,7 @@ from conexion.conexion import obtener_conexion
 
 # Utilidad de paginación estandarizada y generador RIDE PDF (SRI)
 from utils.paginacion import Paginacion
-from utils.factura_pdf import generar_pdf_ride_sri
+from utils.factura_pdf import generar_pdf_ride_sri, generar_pdf_ride_nota_credito_sri
 
 from flask_wtf.csrf import CSRFProtect
 
@@ -2543,12 +2543,22 @@ def formulario_facturacion():
                     'subtotal': subtotal
                 })
 
-            # 1. Insertar Cabecera de Factura
+            subtotal_15 = round(total_acumulado, 2)
+            iva_15 = round(subtotal_15 * 0.15, 2)
+            total_con_iva = round(subtotal_15 + iva_15, 2)
+
+            # 1. Insertar Cabecera de Factura (incluyendo desglose tributario SRI IVA 15%)
             cursor.execute('''
-                INSERT INTO facturas (numero, fecha, monto, id_cliente, id_estado, id_metodo_pago, created_by, activo)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
+                INSERT INTO facturas (
+                    numero, fecha, monto, subtotal_15, subtotal_0, iva, total,
+                    id_cliente, id_estado, id_metodo_pago, created_by, activo
+                )
+                VALUES (%s, %s, %s, %s, 0.00, %s, %s, %s, %s, %s, %s, TRUE)
                 RETURNING id;
-            ''', (numero, fecha, total_acumulado, id_cliente, id_estado, id_metodo_pago, current_user.usuario))
+            ''', (
+                numero, fecha, total_con_iva, subtotal_15, iva_15, total_con_iva,
+                id_cliente, id_estado, id_metodo_pago, current_user.usuario
+            ))
 
             nueva_fac = cursor.fetchone()
             id_factura = extraer_columna(nueva_fac, 'id', 0)
@@ -2668,11 +2678,19 @@ def editar_factura(numero):
             for d in cursor.fetchall()
         ]
 
+        cursor.execute('SELECT id, nombre FROM estados_factura ORDER BY id ASC;')
+        estados_bd = cursor.fetchall()
+
         form = FacturacionForm()
         form.cliente.choices = [
             (extraer_columna(c, 'id', 0), f"{extraer_columna(c, 'nombre', 1)} - {extraer_columna(c, 'ruc', 2) or 'S/RUC'}")
             for c in clientes_bd
         ]
+        if estados_bd:
+            form.estado.choices = [
+                (int(extraer_columna(e, 'id', 0)), str(extraer_columna(e, 'nombre', 1)).capitalize())
+                for e in estados_bd
+            ]
 
         if request.method == 'GET':
             form.numero.data = fac_num
@@ -2719,7 +2737,7 @@ def editar_factura(numero):
                     c_ant = extraer_columna(it, 'cantidad', 1)
                     cursor.execute('UPDATE productos SET stock = stock + %s WHERE id = %s;', (c_ant, p_ant))
 
-            # 2. Reemplazar líneas de detalle
+            # 2. Reemplazar líneas de detalle (el trigger trg_descontar_stock_detalle descuenta stock en INSERT)
             cursor.execute('DELETE FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
 
             total_acumulado = 0.0
@@ -2736,24 +2754,37 @@ def editar_factura(numero):
                     VALUES (%s, %s, %s, %s, %s);
                 ''', (fac_id, int(p_id), cant, prec, subt))
 
-                # Descontar stock solo si el nuevo estado es Pagada (1) o Pendiente (2)
-                if nuevo_estado_id != 3:
-                    cursor.execute('UPDATE productos SET stock = stock - %s WHERE id = %s;', (cant, int(p_id)))
+                # Si el nuevo estado es Anulada (3), compensar el descuento realizado por el trigger
+                if nuevo_estado_id == 3:
+                    cursor.execute('UPDATE productos SET stock = stock + %s WHERE id = %s;', (cant, int(p_id)))
 
-            monto_final = total_acumulado if prod_ids else float(form.monto.data or 0.0)
+            if prod_ids:
+                subtotal_15 = round(total_acumulado, 2)
+                iva_15 = round(subtotal_15 * 0.15, 2)
+                monto_final = round(subtotal_15 + iva_15, 2)
+            else:
+                monto_final = float(form.monto.data or 0.0)
+                subtotal_15 = round(monto_final / 1.15, 2)
+                iva_15 = round(monto_final - subtotal_15, 2)
 
-            # 3. Actualización de factura persistiendo id_estado
+            # 3. Actualización de factura persistiendo id_estado y desglose tributario SRI
             cursor.execute('''
                 UPDATE facturas
                 SET numero = %s, 
                     fecha = %s, 
                     monto = %s, 
+                    subtotal_15 = %s,
+                    iva = %s,
+                    total = %s,
                     id_cliente = %s, 
                     id_estado = %s, 
                     id_metodo_pago = %s, 
                     modified_by = %s
                 WHERE id = %s;
-            ''', (nuevo_numero, fecha, monto_final, id_cliente, nuevo_estado_id, nuevo_metodo_pago, current_user.usuario, fac_id))
+            ''', (
+                nuevo_numero, fecha, monto_final, subtotal_15, iva_15, monto_final,
+                id_cliente, nuevo_estado_id, nuevo_metodo_pago, current_user.usuario, fac_id
+            ))
 
             conn.commit()
             cursor.close()
@@ -2805,6 +2836,7 @@ def eliminar_factura(numero):
                 cursor.close()
                 return redirect(request.referrer or url_for('facturacion'))
 
+
             fac_id = extraer_columna(fac_row, 'id', 0)
             fac_num = extraer_columna(fac_row, 'numero', 1)
             estado_previo = int(extraer_columna(fac_row, 'id_estado', 2, 1))
@@ -2835,6 +2867,7 @@ def eliminar_factura(numero):
             conn.close()
 
     return redirect(request.referrer or url_for('facturacion'))
+
 
 
 # 4.1 ANULACIÓN EN LOTE DE FACTURAS (REGLA TRIBUTARIA SRI: SIN DELETE FÍSICO, REINTEGRO DE STOCK Y AUDITORÍA)
@@ -3297,10 +3330,12 @@ def cambiar_estado_factura(id_factura):
         flash('Estado de factura inválido.', 'warning')
         return redirect(request.referrer or url_for('facturacion'))
 
+
     conn = obtener_conexion()
     if not conn:
         flash('Error de conexión a la base de datos.', 'danger')
         return redirect(request.referrer or url_for('facturacion'))
+
 
     try:
         cursor = conn.cursor()
@@ -3309,6 +3344,7 @@ def cambiar_estado_factura(id_factura):
             cursor.close()
             flash('Estado de factura inválido.', 'warning')
             return redirect(request.referrer or url_for('facturacion'))
+
 
         cursor.execute('''
             SELECT f.numero, f.id_estado, UPPER(COALESCE(e.nombre, '')) AS estado_actual
@@ -3321,6 +3357,7 @@ def cambiar_estado_factura(id_factura):
             flash('Factura no encontrada o inactiva.', 'warning')
             cursor.close()
             return redirect(request.referrer or url_for('facturacion'))
+
 
         num_factura = extraer_columna(factura, 'numero', 0)
         estado_anterior_id = int(extraer_columna(factura, 'id_estado', 1, 0) or 0)
@@ -3377,6 +3414,634 @@ def cambiar_estado_factura(id_factura):
         conn.close()
 
     return redirect(request.referrer or url_for('facturacion'))
+
+
+
+# ==============================================================================
+# 6.2 MÓDULO DE NOTAS DE CRÉDITO ELECTRÓNICAS (SRI - CÓDIGO 04)
+# ==============================================================================
+
+MOTIVOS_NOTA_CREDITO_SRI = [
+    "Devolución total o parcial de bienes",
+    "Descuento o bonificación",
+    "Error en facturación"
+]
+
+
+def asegurar_esquema_notas_credito(conn):
+    """
+    Garantiza en PostgreSQL la existencia de public.notas_credito,
+    public.detalle_notas_credito, public.obtener_siguiente_secuencial_nc()
+    y los triggers de reintegro de stock y auditoría.
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS public.notas_credito (
+                id SERIAL PRIMARY KEY,
+                numero_comprobante VARCHAR(30) NOT NULL UNIQUE,
+                id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
+                fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
+                motivo TEXT NOT NULL,
+                subtotal_15 NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                subtotal_0 NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                estado VARCHAR(20) NOT NULL DEFAULT 'AUTORIZADA',
+                activo BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by VARCHAR(50) DEFAULT 'sistema',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS public.detalle_notas_credito (
+                id SERIAL PRIMARY KEY,
+                id_nota_credito INT NOT NULL REFERENCES public.notas_credito(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                id_producto INT NOT NULL REFERENCES public.productos(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                cantidad INT NOT NULL CHECK (cantidad > 0),
+                precio_unitario NUMERIC(10, 2) NOT NULL CHECK (precio_unitario >= 0),
+                subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                total NUMERIC(10, 2) NOT NULL DEFAULT 0.00
+            );
+
+            CREATE OR REPLACE FUNCTION public.obtener_siguiente_secuencial_nc()
+            RETURNS VARCHAR AS $$
+            DECLARE
+                v_siguiente INT;
+            BEGIN
+                SELECT COALESCE(MAX(id), 0) + 1
+                INTO v_siguiente
+                FROM public.notas_credito;
+
+                RETURN '001-001-' || LPAD(v_siguiente::TEXT, 9, '0');
+            END;
+            $$ LANGUAGE plpgsql;
+
+            CREATE OR REPLACE FUNCTION public.fn_reintegrar_stock_nc()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                IF NEW.subtotal IS NULL OR NEW.subtotal = 0 THEN
+                    NEW.subtotal := ROUND(NEW.cantidad * NEW.precio_unitario, 2);
+                END IF;
+                IF NEW.iva IS NULL OR NEW.iva = 0 THEN
+                    NEW.iva := ROUND(NEW.subtotal * 0.15, 2);
+                END IF;
+                IF NEW.total IS NULL OR NEW.total = 0 THEN
+                    NEW.total := ROUND(NEW.subtotal + NEW.iva, 2);
+                END IF;
+
+                UPDATE public.productos
+                SET stock = stock + NEW.cantidad,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = NEW.id_producto;
+
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+        """)
+
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_reintegrar_stock_nc'
+                ) THEN
+                    CREATE TRIGGER trg_reintegrar_stock_nc
+                    BEFORE INSERT ON public.detalle_notas_credito
+                    FOR EACH ROW EXECUTE FUNCTION public.fn_reintegrar_stock_nc();
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_auditoria_notas_credito'
+                ) AND EXISTS (
+                    SELECT 1 FROM pg_proc WHERE proname = 'fn_auditoria_general'
+                ) THEN
+                    CREATE TRIGGER trg_auditoria_notas_credito
+                    AFTER INSERT OR UPDATE OR DELETE ON public.notas_credito
+                    FOR EACH ROW EXECUTE FUNCTION public.fn_auditoria_general();
+                END IF;
+            END $$;
+        """)
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+
+
+@app.route('/facturacion/nota-credito/<int:id_factura>', methods=['GET', 'POST'])
+@login_required
+@roles_requeridos('admin', 'operador')
+def emitir_nota_credito(id_factura):
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión con la base de datos.', 'danger')
+        return redirect(url_for('facturacion'))
+
+    asegurar_esquema_notas_credito(conn)
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Obtener datos de la factura original (id, numero_comprobante, fecha_emision, id_cliente)
+        cursor.execute('''
+            SELECT f.id,
+                   f.numero AS numero_comprobante,
+                   f.fecha AS fecha_emision,
+                   f.id_cliente,
+                   f.monto AS total_factura,
+                   f.id_estado,
+                   UPPER(COALESCE(e.nombre, 'PAGADA')) AS estado_nombre,
+                   COALESCE(c.nombre, 'Consumidor Final') AS cliente_nombre,
+                   COALESCE(c.ruc, '9999999999999') AS cliente_ruc,
+                   COALESCE(c.email, '') AS cliente_email,
+                   COALESCE(c.telefono, '') AS cliente_telefono
+            FROM public.facturas f
+            LEFT JOIN public.clientes c ON f.id_cliente = c.id
+            LEFT JOIN public.estados_factura e ON f.id_estado = e.id
+            WHERE f.id = %s AND f.activo = TRUE;
+        ''', (id_factura,))
+        fila_fac = cursor.fetchone()
+
+        if not fila_fac:
+            cursor.close()
+            flash('La factura original no existe o se encuentra inactiva.', 'warning')
+            return redirect(url_for('facturacion'))
+
+        fac_id = int(extraer_columna(fila_fac, 'id', 0))
+        fac_numero = str(extraer_columna(fila_fac, 'numero_comprobante', 1, ''))
+        fac_fecha = extraer_columna(fila_fac, 'fecha_emision', 2)
+        fac_id_cliente = int(extraer_columna(fila_fac, 'id_cliente', 3))
+        fac_total = float(extraer_columna(fila_fac, 'total_factura', 4, 0.0) or 0.0)
+        fac_id_estado = int(extraer_columna(fila_fac, 'id_estado', 5, 1) or 1)
+        fac_estado_txt = str(extraer_columna(fila_fac, 'estado_nombre', 6, 'PAGADA')).upper()
+        cliente_nombre = str(extraer_columna(fila_fac, 'cliente_nombre', 7, 'Consumidor Final'))
+        cliente_ruc = str(extraer_columna(fila_fac, 'cliente_ruc', 8, '9999999999999'))
+        cliente_email = str(extraer_columna(fila_fac, 'cliente_email', 9, ''))
+        cliente_telefono = str(extraer_columna(fila_fac, 'cliente_telefono', 10, ''))
+
+        if fac_id_estado == 3 or 'ANULAD' in fac_estado_txt:
+            cursor.close()
+            flash(f'No se puede emitir una Nota de Crédito sobre la factura {fac_numero} porque está Anulada.', 'warning')
+            return redirect(url_for('facturacion'))
+
+        # 2. Consultar SELECT public.obtener_siguiente_secuencial_nc();
+        cursor.execute("SELECT public.obtener_siguiente_secuencial_nc() AS siguiente_nc;")
+        row_seq = cursor.fetchone()
+        secuencial_nc = str(extraer_columna(row_seq, 'siguiente_nc', 0, '001-001-000000001') or '001-001-000000001').strip()
+
+        # 3. Cargar detalle de productos facturados y cantidades ya devueltas en notas de crédito previas
+        cursor.execute('''
+            SELECT df.id_producto,
+                   p.nombre AS producto_nombre,
+                   df.cantidad AS cantidad_facturada,
+                   df.precio_unitario,
+                   COALESCE(df.subtotal, ROUND(df.cantidad * df.precio_unitario, 2)) AS subtotal_facturado,
+                   COALESCE((
+                       SELECT SUM(dnc.cantidad)
+                       FROM public.detalle_notas_credito dnc
+                       INNER JOIN public.notas_credito nc ON dnc.id_nota_credito = nc.id
+                       WHERE nc.id_factura = df.id_factura
+                         AND dnc.id_producto = df.id_producto
+                         AND nc.activo = TRUE
+                   ), 0) AS cantidad_ya_devuelta
+            FROM public.detalle_facturas df
+            INNER JOIN public.productos p ON df.id_producto = p.id
+            WHERE df.id_factura = %s
+            ORDER BY df.id_producto ASC;
+        ''', (fac_id,))
+        filas_detalle = cursor.fetchall()
+
+        detalles_factura = []
+        mapa_productos_fac = {}
+        for d in filas_detalle:
+            pid = int(extraer_columna(d, 'id_producto', 0))
+            pnom = str(extraer_columna(d, 'producto_nombre', 1, 'Producto'))
+            cant_fac = int(extraer_columna(d, 'cantidad_facturada', 2, 0) or 0)
+            prec_unit = float(extraer_columna(d, 'precio_unitario', 3, 0.0) or 0.0)
+            sub_fac = float(extraer_columna(d, 'subtotal_facturado', 4, 0.0) or 0.0)
+            cant_dev_prev = int(extraer_columna(d, 'cantidad_ya_devuelta', 5, 0) or 0)
+            cant_disponible = max(0, cant_fac - cant_dev_prev)
+
+            item_dict = {
+                'id_producto': pid,
+                'nombre': pnom,
+                'cantidad_facturada': cant_fac,
+                'cantidad_devuelta': cant_dev_prev,
+                'cantidad_disponible': cant_disponible,
+                'precio_unitario': round(prec_unit, 2),
+                'subtotal_facturado': round(sub_fac, 2)
+            }
+            detalles_factura.append(item_dict)
+            mapa_productos_fac[pid] = item_dict
+
+        factura_info = {
+            'id': fac_id,
+            'numero_comprobante': fac_numero,
+            'fecha_emision': fac_fecha.strftime('%Y-%m-%d') if hasattr(fac_fecha, 'strftime') else str(fac_fecha),
+            'id_cliente': fac_id_cliente,
+            'cliente_nombre': cliente_nombre,
+            'cliente_ruc': cliente_ruc,
+            'cliente_email': cliente_email,
+            'cliente_telefono': cliente_telefono,
+            'total_factura': fac_total
+        }
+
+        if request.method == 'POST':
+            numero_nc = (request.form.get('numero_comprobante') or secuencial_nc).strip().upper()
+            motivo_seleccionado = (request.form.get('motivo') or '').strip()
+            observacion_extra = (request.form.get('detalle_motivo') or '').strip()
+
+            if not motivo_seleccionado:
+                flash('Debe seleccionar el motivo de modificación para emitir la Nota de Crédito.', 'warning')
+                cursor.close()
+                return render_template(
+                    'nueva_nota_credito.html',
+                    factura=factura_info,
+                    detalles=detalles_factura,
+                    secuencial_nc=secuencial_nc,
+                    motivos_sri=MOTIVOS_NOTA_CREDITO_SRI,
+                    sistema=SISTEMA_INFO
+                )
+
+            motivo_final = f"{motivo_seleccionado} - {observacion_extra}" if observacion_extra else motivo_seleccionado
+
+            prod_ids_form = request.form.getlist('id_producto[]')
+            cantidades_form = request.form.getlist('cantidad_devolver[]')
+
+            lineas_devolucion = []
+            subtotal_15_acum = 0.0
+            subtotal_0_acum = 0.0
+            iva_acum = 0.0
+            total_acum = 0.0
+
+            for pid_str, cant_str in zip(prod_ids_form, cantidades_form):
+                try:
+                    pid = int(pid_str)
+                    cant_dev = int(cant_str or 0)
+                except (ValueError, TypeError):
+                    continue
+
+                if cant_dev <= 0 or pid not in mapa_productos_fac:
+                    continue
+
+                info_orig = mapa_productos_fac[pid]
+                if cant_dev > info_orig['cantidad_disponible']:
+                    flash(
+                        f"La cantidad a devolver de '{info_orig['nombre']}' ({cant_dev}) supera la cantidad disponible ({info_orig['cantidad_disponible']}).",
+                        'danger'
+                    )
+                    cursor.close()
+                    return render_template(
+                        'nueva_nota_credito.html',
+                        factura=factura_info,
+                        detalles=detalles_factura,
+                        secuencial_nc=secuencial_nc,
+                        motivos_sri=MOTIVOS_NOTA_CREDITO_SRI,
+                        sistema=SISTEMA_INFO
+                    )
+
+                precio_u = round(float(info_orig['precio_unitario']), 2)
+                sub_linea = round(cant_dev * precio_u, 2)
+                iva_linea = round(sub_linea * 0.15, 2)
+                tot_linea = round(sub_linea + iva_linea, 2)
+
+                subtotal_15_acum = round(subtotal_15_acum + sub_linea, 2)
+                iva_acum = round(iva_acum + iva_linea, 2)
+                total_acum = round(total_acum + tot_linea, 2)
+
+                lineas_devolucion.append({
+                    'id_producto': pid,
+                    'cantidad': cant_dev,
+                    'precio_unitario': precio_u,
+                    'subtotal': sub_linea,
+                    'iva': iva_linea,
+                    'total': tot_linea
+                })
+
+            if not lineas_devolucion:
+                flash('Debe ingresar una cantidad a devolver mayor a 0 en al menos un producto facturado.', 'warning')
+                cursor.close()
+                return render_template(
+                    'nueva_nota_credito.html',
+                    factura=factura_info,
+                    detalles=detalles_factura,
+                    secuencial_nc=secuencial_nc,
+                    motivos_sri=MOTIVOS_NOTA_CREDITO_SRI,
+                    sistema=SISTEMA_INFO
+                )
+
+            # Verificar unicidad del secuencial NC antes de insertar
+            cursor.execute("SELECT 1 FROM public.notas_credito WHERE numero_comprobante = %s LIMIT 1;", (numero_nc,))
+            if cursor.fetchone():
+                cursor.execute("SELECT public.obtener_siguiente_secuencial_nc() AS siguiente_nc;")
+                row_nuevo_seq = cursor.fetchone()
+                numero_nc = str(extraer_columna(row_nuevo_seq, 'siguiente_nc', 0, secuencial_nc))
+
+            # Insertar cabecera en public.notas_credito
+            cursor.execute('''
+                INSERT INTO public.notas_credito (
+                    numero_comprobante, id_factura, id_cliente, id_usuario,
+                    fecha_emision, motivo, subtotal_15, subtotal_0, iva, total,
+                    estado, activo, created_by
+                ) VALUES (%s, %s, %s, %s, CURRENT_DATE, %s, %s, %s, %s, %s, 'AUTORIZADA', TRUE, %s)
+                RETURNING id;
+            ''', (
+                numero_nc,
+                fac_id,
+                fac_id_cliente,
+                int(current_user.id),
+                motivo_final,
+                subtotal_15_acum,
+                subtotal_0_acum,
+                iva_acum,
+                total_acum,
+                current_user.usuario
+            ))
+            res_nc = cursor.fetchone()
+            id_nota_credito = int(extraer_columna(res_nc, 'id', 0))
+
+            # Insertar detalle en public.detalle_notas_credito (el trigger trg_reintegrar_stock_nc devuelve el stock automáticamente)
+            for item_nc in lineas_devolucion:
+                cursor.execute('''
+                    INSERT INTO public.detalle_notas_credito (
+                        id_nota_credito, id_producto, cantidad, precio_unitario, subtotal, iva, total
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s);
+                ''', (
+                    id_nota_credito,
+                    item_nc['id_producto'],
+                    item_nc['cantidad'],
+                    item_nc['precio_unitario'],
+                    item_nc['subtotal'],
+                    item_nc['iva'],
+                    item_nc['total']
+                ))
+
+            # Garantizar registro explícito en auditoría si no se disparó por trigger
+            cursor.execute('''
+                SELECT 1 FROM public.auditoria
+                WHERE tabla_afectada = 'notas_credito' AND id_registro = %s
+                LIMIT 1;
+            ''', (id_nota_credito,))
+            if not cursor.fetchone():
+                datos_nc_json = json.dumps({
+                    'id': id_nota_credito,
+                    'numero_comprobante': numero_nc,
+                    'id_factura': fac_id,
+                    'factura_modificada': fac_numero,
+                    'motivo': motivo_final,
+                    'subtotal_15': subtotal_15_acum,
+                    'iva': iva_acum,
+                    'total': total_acum,
+                    'items_devueltos': len(lineas_devolucion)
+                }, ensure_ascii=False)
+                cursor.execute('''
+                    INSERT INTO public.auditoria (fecha_hora, usuario, tabla_afectada, operacion, id_registro, datos_previos, datos_nuevos)
+                    VALUES (CURRENT_TIMESTAMP, %s, 'notas_credito', 'INSERT', %s, NULL, %s::jsonb);
+                ''', (current_user.usuario, id_nota_credito, datos_nc_json))
+
+            conn.commit()
+            cursor.close()
+            flash(
+                f'Nota de Crédito {numero_nc} emitida exitosamente sobre la factura {fac_numero}. '
+                f'El stock de los productos devueltos ha sido reintegrado al inventario.',
+                'success'
+            )
+            return redirect(url_for('notas_credito'))
+
+        cursor.close()
+        return render_template(
+            'nueva_nota_credito.html',
+            factura=factura_info,
+            detalles=detalles_factura,
+            secuencial_nc=secuencial_nc,
+            motivos_sri=MOTIVOS_NOTA_CREDITO_SRI,
+            sistema=SISTEMA_INFO
+        )
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error al procesar la Nota de Crédito: {e}', 'danger')
+        return redirect(url_for('facturacion'))
+    finally:
+        conn.close()
+
+
+@app.route('/notas-credito')
+@login_required
+@roles_requeridos('admin', 'operador')
+def notas_credito():
+    conn = obtener_conexion()
+    lista_nc = []
+    page = max(1, request.args.get('page', 1, type=int))
+    q = request.args.get('q', '', type=str).strip()
+    per_page = 10
+    offset = (page - 1) * per_page
+    total_items = 0
+    total_monto_devuelto = 0.0
+
+    if conn:
+        asegurar_esquema_notas_credito(conn)
+        try:
+            cursor = conn.cursor()
+
+            where_sql = "WHERE nc.activo = TRUE"
+            params = []
+
+            if q:
+                where_sql += """ AND (
+                    nc.numero_comprobante ILIKE %s OR
+                    f.numero ILIKE %s OR
+                    c.nombre ILIKE %s OR
+                    COALESCE(c.ruc, '') ILIKE %s OR
+                    nc.motivo ILIKE %s
+                )"""
+                like_q = f"%{q}%"
+                params.extend([like_q, like_q, like_q, like_q, like_q])
+
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(nc.total), 0) AS suma_total
+                FROM public.notas_credito nc
+                INNER JOIN public.facturas f ON nc.id_factura = f.id
+                INNER JOIN public.clientes c ON nc.id_cliente = c.id
+                {where_sql};
+            ''', tuple(params))
+            row_meta = cursor.fetchone()
+            total_items = int(extraer_columna(row_meta, 'total', 0, 0) or 0)
+            total_monto_devuelto = float(extraer_columna(row_meta, 'suma_total', 1, 0.0) or 0.0)
+
+            cursor.execute(f'''
+                SELECT nc.id,
+                       nc.numero_comprobante,
+                       nc.id_factura,
+                       f.numero AS factura_modificada,
+                       c.nombre AS cliente_nombre,
+                       COALESCE(c.ruc, 'S/RUC') AS cliente_ruc,
+                       nc.fecha_emision,
+                       nc.motivo,
+                       nc.subtotal_15,
+                       nc.iva,
+                       nc.total,
+                       nc.estado,
+                       COALESCE(SUM(dnc.cantidad), 0) AS total_unidades,
+                       COALESCE(STRING_AGG(CONCAT(dnc.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
+                FROM public.notas_credito nc
+                INNER JOIN public.facturas f ON nc.id_factura = f.id
+                INNER JOIN public.clientes c ON nc.id_cliente = c.id
+                LEFT JOIN public.detalle_notas_credito dnc ON dnc.id_nota_credito = nc.id
+                LEFT JOIN public.productos p ON dnc.id_producto = p.id
+                {where_sql}
+                GROUP BY nc.id, nc.numero_comprobante, nc.id_factura, f.numero, c.nombre, c.ruc,
+                         nc.fecha_emision, nc.motivo, nc.subtotal_15, nc.iva, nc.total, nc.estado
+                ORDER BY nc.id DESC
+                LIMIT %s OFFSET %s;
+            ''', tuple(params + [per_page, offset]))
+            filas = cursor.fetchall()
+            cursor.close()
+
+            for r in filas:
+                fecha_raw = extraer_columna(r, 'fecha_emision', 6)
+                fecha_str = fecha_raw.strftime('%Y-%m-%d') if hasattr(fecha_raw, 'strftime') else str(fecha_raw or '')
+                lista_nc.append({
+                    'id': int(extraer_columna(r, 'id', 0)),
+                    'numero_comprobante': str(extraer_columna(r, 'numero_comprobante', 1, '')),
+                    'id_factura': int(extraer_columna(r, 'id_factura', 2)),
+                    'factura_modificada': str(extraer_columna(r, 'factura_modificada', 3, '')),
+                    'cliente': str(extraer_columna(r, 'cliente_nombre', 4, '')),
+                    'ruc': str(extraer_columna(r, 'cliente_ruc', 5, '')),
+                    'fecha': fecha_str,
+                    'motivo': str(extraer_columna(r, 'motivo', 7, '')),
+                    'subtotal_15': float(extraer_columna(r, 'subtotal_15', 8, 0.0) or 0.0),
+                    'iva': float(extraer_columna(r, 'iva', 9, 0.0) or 0.0),
+                    'total': float(extraer_columna(r, 'total', 10, 0.0) or 0.0),
+                    'estado': str(extraer_columna(r, 'estado', 11, 'AUTORIZADA')),
+                    'total_unidades': int(extraer_columna(r, 'total_unidades', 12, 0) or 0),
+                    'resumen_items': str(extraer_columna(r, 'resumen_items', 13, ''))
+                })
+        except Exception as e:
+            flash(f'Error al consultar las Notas de Crédito: {e}', 'danger')
+        finally:
+            conn.close()
+    else:
+        flash('Error de conexión con la base de datos.', 'danger')
+
+    paginador = Paginacion(
+        items=lista_nc,
+        total_registros=total_items,
+        pagina_actual=page,
+        por_pagina=per_page
+    )
+
+    return render_template(
+        'notas_credito.html',
+        notas_credito=paginador.items,
+        paginador=paginador,
+        total_items=total_items,
+        total_monto_devuelto=total_monto_devuelto,
+        q=q,
+        sistema=SISTEMA_INFO
+    )
+
+
+@app.route('/notas-credito/descargar/<int:id_nc>')
+@login_required
+@roles_requeridos('admin', 'operador')
+def descargar_nota_credito(id_nc):
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión con la base de datos.', 'danger')
+        return redirect(url_for('notas_credito'))
+
+    asegurar_esquema_notas_credito(conn)
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT nc.id,
+                   nc.numero_comprobante,
+                   nc.id_factura,
+                   f.numero AS factura_numero,
+                   f.fecha AS factura_fecha,
+                   nc.fecha_emision,
+                   nc.motivo,
+                   nc.subtotal_15,
+                   nc.subtotal_0,
+                   nc.iva,
+                   nc.total,
+                   COALESCE(c.nombre, 'Consumidor Final') AS cliente,
+                   COALESCE(c.ruc, '9999999999999') AS ruc,
+                   COALESCE(c.email, '') AS email,
+                   COALESCE(c.telefono, '') AS telefono
+            FROM public.notas_credito nc
+            INNER JOIN public.facturas f ON nc.id_factura = f.id
+            INNER JOIN public.clientes c ON nc.id_cliente = c.id
+            WHERE nc.id = %s AND nc.activo = TRUE;
+        ''', (id_nc,))
+        fila_nc = cursor.fetchone()
+        if not fila_nc:
+            flash('Nota de Crédito no encontrada.', 'warning')
+            return redirect(url_for('notas_credito'))
+
+        nc_dict = {
+            'id': extraer_columna(fila_nc, 'id', 0),
+            'numero_comprobante': extraer_columna(fila_nc, 'numero_comprobante', 1),
+            'id_factura': extraer_columna(fila_nc, 'id_factura', 2),
+            'factura_numero': extraer_columna(fila_nc, 'factura_numero', 3),
+            'factura_fecha': extraer_columna(fila_nc, 'factura_fecha', 4),
+            'fecha_emision': extraer_columna(fila_nc, 'fecha_emision', 5),
+            'motivo': extraer_columna(fila_nc, 'motivo', 6),
+            'subtotal_15': float(extraer_columna(fila_nc, 'subtotal_15', 7, 0.0) or 0.0),
+            'subtotal_0': float(extraer_columna(fila_nc, 'subtotal_0', 8, 0.0) or 0.0),
+            'iva': float(extraer_columna(fila_nc, 'iva', 9, 0.0) or 0.0),
+            'total': float(extraer_columna(fila_nc, 'total', 10, 0.0) or 0.0),
+            'cliente': extraer_columna(fila_nc, 'cliente', 11),
+            'ruc': extraer_columna(fila_nc, 'ruc', 12),
+            'email': extraer_columna(fila_nc, 'email', 13),
+            'telefono': extraer_columna(fila_nc, 'telefono', 14)
+        }
+
+        cursor.execute('''
+            SELECT dnc.id_producto,
+                   COALESCE(p.nombre, 'Producto') AS nombre,
+                   dnc.cantidad,
+                   dnc.precio_unitario,
+                   dnc.subtotal,
+                   dnc.iva,
+                   dnc.total
+            FROM public.detalle_notas_credito dnc
+            LEFT JOIN public.productos p ON dnc.id_producto = p.id
+            WHERE dnc.id_nota_credito = %s;
+        ''', (id_nc,))
+        filas_det = cursor.fetchall()
+        detalles_lista = [
+            {
+                'id_producto': extraer_columna(d, 'id_producto', 0),
+                'nombre': extraer_columna(d, 'nombre', 1),
+                'cantidad': int(extraer_columna(d, 'cantidad', 2, 1) or 1),
+                'precio_unitario': float(extraer_columna(d, 'precio_unitario', 3, 0.0) or 0.0),
+                'subtotal': float(extraer_columna(d, 'subtotal', 4, 0.0) or 0.0),
+                'iva': float(extraer_columna(d, 'iva', 5, 0.0) or 0.0),
+                'total': float(extraer_columna(d, 'total', 6, 0.0) or 0.0)
+            }
+            for d in filas_det
+        ]
+
+        buffer_pdf, numero_sri = generar_pdf_ride_nota_credito_sri(nc_dict, detalles_lista)
+        return send_file(
+            buffer_pdf,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f"NotaCredito_{numero_sri}.pdf"
+        )
+    except Exception as e:
+        flash(f'Error al generar el PDF RIDE de la Nota de Crédito: {e}', 'danger')
+        return redirect(url_for('notas_credito'))
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
 
 
 # 7. GESTIÓN DEL CARRITO EN SESIÓN Y FACTURACIÓN DIRECTA PAGADA

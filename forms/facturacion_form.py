@@ -43,16 +43,16 @@ class FacturacionForm(FlaskForm):
             NumberRange(min=0.0, max=1000000.0, message='El monto debe ser un valor positivo.')
         ]
     )
-    # Permite validación compatible tanto para emisión (Pagada) como para auditoría/edición
+    # Coincide con la tabla 'estados_factura' (1: PENDIENTE, 2: PAGADA, 3: ANULADA)
     estado = SelectField(
         'Estado de Cobro',
         coerce=coerce_int_or_none,
         choices=[
-            (1, 'Pagada (Cobro confirmado)'),
-            (2, 'Pendiente de Pago'),
+            (1, 'Pendiente de Pago'),
+            (2, 'Pagada (Cobro confirmado)'),
             (3, 'Anulada')
         ],
-        default=1,
+        default=2,
         validators=[
             InputRequired(message='Debe definir el estado de cobro de la factura.')
         ]

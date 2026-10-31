@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block title %}Emitir Nota de Crédito | {{ sistema.nombre_sistema }}{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-11 col-xl-10">
+            <!-- Encabezado -->
+            <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-3 mb-4">
+                <div>
+                    <span class="text-danger fw-bold text-uppercase tracking-wider small d-block">
+                        <i class="bi bi-file-earmark-minus me-1"></i>Comprobante Electrónico SRI (Código 04)
+                    </span>
+                    <h3 class="fw-bold text-dark m-0">Emitir Nota de Crédito</h3>
+                    <small class="text-muted">Devolución de inventario y ajuste tributario sobre factura autorizada</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{{ url_for('notas_credito') }}" class="btn btn-outline-primary btn-sm rounded-3 px-3">
+                        <i class="bi bi-journal-text me-1"></i> Ver Notas de Crédito
+                    </a>
+                    <a href="{{ url_for('facturacion') }}" class="btn btn-outline-secondary btn-sm rounded-3 px-3">
+                        <i class="bi bi-arrow-left me-1"></i> Volver a Facturación
+                    </a>
+                </div>
+            </div>
+
+            <form method="POST" action="{{ url_for('emitir_nota_credito', id_factura=factura.id) }}" id="formNotaCredito">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                <!-- 1. Identificación del Comprobante y Factura Modificada -->
+                <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white">
+                    <h6 class="fw-bold text-uppercase text-secondary small mb-3 border-bottom pb-2">
+                        <i class="bi bi-shield-check text-primary me-1"></i> 1. Datos Tributarios y Comprobante que se Modifica
+                    </h6>
+
+                    <div class="row g-3">
+                        <!-- N° Nota de Crédito (Secuencial SRI Readonly) -->
+                        <div class="col-12 col-md-4">
+                            <label class="form-label text-dark fw-semibold small">N° Nota de Crédito (SRI)</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-danger-subtle text-danger border-danger-subtle fw-bold">
+                                    <i class="bi bi-hash"></i>
+                                </span>
+                                <input type="text"
+                                       name="numero_comprobante"
+                                       class="form-control bg-light fw-bold font-monospace text-danger border-danger-subtle"
+                                       value="{{ secuencial_nc }}"
+                                       readonly>
+                            </div>
+                            <small class="text-muted" style="font-size: 0.73rem;">Secuencial autogenerado en BD</small>
+                        </div>
+
+                        <!-- Factura Modificada (No editable) -->
+                        <div class="col-12 col-md-4">
+                            <label class="form-label text-dark fw-semibold small">Factura Modificada</label>
+                            <input type="text"
+                                   class="form-control bg-light fw-bold font-monospace text-primary"
+                                   value="{{ factura.numero_comprobante }}"
+                                   readonly>
+                        </div>
+
+                        <!-- Fecha de Emisión Factura Original (No editable) -->
+                        <div class="col-12 col-md-4">
+                            <label class="form-label text-dark fw-semibold small">Fecha Emisión Factura Original</label>
+                            <input type="text"
+                                   class="form-control bg-light text-secondary fw-medium"
+                                   value="{{ factura.fecha_emision }}"
+                                   readonly>
+                        </div>
+
+                        <!-- Cliente / Razón Social (No editable) -->
+                        <div class="col-12 col-md-6">
+                            <label class="form-label text-dark fw-semibold small">Cliente / Razón Social</label>
+                            <input type="text"
+                                   class="form-control bg-light text-dark fw-semibold"
+                                   value="{{ factura.cliente_nombre }}"
+                                   readonly>
+                        </div>
+
+                        <!-- RUC / Cédula (No editable) -->
+                        <div class="col-12 col-md-3">
+                            <label class="form-label text-dark fw-semibold small">RUC / Cédula</label>
+                            <input type="text"
+                                   class="form-control bg-light font-monospace text-secondary"
+                                   value="{{ factura.cliente_ruc }}"
+                                   readonly>
+                        </div>
+
+                        <!-- Total Original Factura (No editable) -->
+                        <div class="col-12 col-md-3">
+                            <label class="form-label text-dark fw-semibold small">Total Factura Original</label>
+                            <input type="text"
+                                   class="form-control bg-light fw-bold text-dark text-end"
+                                   value="${{ '%.2f'|format(factura.total_factura) }}"
+                                   readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Motivo de Modificación SRI -->
+                <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white">
+                    <h6 class="fw-bold text-uppercase text-secondary small mb-3 border-bottom pb-2">
+                        <i class="bi bi-chat-left-quote text-primary me-1"></i> 2. Motivo de Modificación (Normativa SRI)
+                    </h6>
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label for="selectMotivo" class="form-label text-dark fw-semibold small">Razón de la Modificación <span class="text-danger">*</span></label>
+                            <select name="motivo" id="selectMotivo" class="form-select rounded-3" required>
+                                {% for m in motivos_sri %}
+                                <option value="{{ m }}">{{ m }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label for="detalleMotivo" class="form-label text-dark fw-semibold small">Observación Adicional (Opcional)</label>
+                            <input type="text"
+                                   name="detalle_motivo"
+                                   id="detalleMotivo"
+                                   class="form-control rounded-3"
+                                   maxlength="180"
+                                   placeholder="Ej: Devolución de equipo por cambio de modelo o garantía">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Selección de Ítems y Cantidades a Devolver -->
+                <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white">
+                    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2 mb-3">
+                        <div>
+                            <h6 class="fw-bold text-uppercase text-secondary small m-0">
+                                <i class="bi bi-box-arrow-in-down text-primary me-1"></i> 3. Detalle de Productos Facturados y Cantidades a Devolver
+                            </h6>
+                            <small class="text-muted">Las unidades devueltas se reintegrarán automáticamente al stock de productos mediante trigger.</small>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary rounded-3" onclick="aplicarDevolucionTotal()">
+                                <i class="bi bi-check2-all me-1"></i> Devolver Todo Disponible
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-3" onclick="limpiarCantidades()">
+                                <i class="bi bi-eraser me-1"></i> Poner en 0
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive rounded-3 border overflow-hidden">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light text-nowrap small text-uppercase">
+                                <tr>
+                                    <th class="ps-3">Producto Facturado</th>
+                                    <th class="text-center">Cant. Facturada</th>
+                                    <th class="text-center">Devuelto Prev.</th>
+                                    <th class="text-center">Disponible</th>
+                                    <th class="text-end">Precio Unit. ({{ sistema.moneda }})</th>
+                                    <th style="width: 150px;" class="text-center">Cant. a Devolver</th>
+                                    <th class="text-end pe-3">Subtotal Devolución</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in detalles %}
+                                <tr class="fila-item-nc {% if item.cantidad_disponible == 0 %}table-light text-muted{% endif %}"
+                                    data-precio="{{ item.precio_unitario }}"
+                                    data-disponible="{{ item.cantidad_disponible }}">
+                                    <td class="ps-3 fw-semibold">
+                                        <input type="hidden" name="id_producto[]" value="{{ item.id_producto }}">
+                                        <i class="bi bi-cpu text-primary me-1"></i> {{ item.nombre }}
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2">{{ item.cantidad_facturada }}</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge bg-warning-subtle text-warning-emphasis rounded-pill px-2">{{ item.cantidad_devuelta }}</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge {% if item.cantidad_disponible > 0 %}bg-success-subtle text-success border border-success-subtle{% else %}bg-danger-subtle text-danger{% endif %} rounded-pill px-2">
+                                            {{ item.cantidad_disponible }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end font-monospace">${{ "%.2f"|format(item.precio_unitario) }}</td>
+                                    <td class="text-center">
+                                        <input type="number"
+                                               name="cantidad_devolver[]"
+                                               class="form-control form-control-sm text-center fw-bold inp-cant-devolver rounded-3"
+                                               min="0"
+                                               max="{{ item.cantidad_disponible }}"
+                                               value="{{ item.cantidad_disponible }}"
+                                               {% if item.cantidad_disponible == 0 %}readonly{% endif %}
+                                               oninput="recalcularNotaCredito()">
+                                    </td>
+                                    <td class="text-end pe-3 fw-bold font-monospace text-dark celda-subtotal-item">
+                                        $0.00
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        No se encontraron productos asociados a esta factura.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 4. Resumen Reactivo de Subtotal, IVA 15% y Total -->
+                <div class="row justify-content-end mb-4">
+                    <div class="col-12 col-md-6 col-lg-5">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 bg-white border-start border-danger border-4">
+                            <h6 class="fw-bold text-uppercase text-secondary small mb-3">Liquidación Tributaria SRI</h6>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Subtotal Base Imponible (15%):</span>
+                                <span class="fw-semibold font-monospace" id="lblSubtotal15">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Subtotal Tarifa 0%:</span>
+                                <span class="fw-semibold font-monospace">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                                <span class="text-muted">IVA (15%):</span>
+                                <span class="fw-semibold font-monospace text-primary" id="lblIva15">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="fw-bold text-dark fs-6">TOTAL DEVUELTO:</span>
+                                <span class="fw-bold text-danger fs-4 font-monospace" id="lblTotalNC">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botones de Acción -->
+                <div class="d-flex align-items-center justify-content-end gap-2">
+                    <a href="{{ url_for('facturacion') }}" class="btn btn-outline-secondary px-4 rounded-3">
+                        Cancelar
+                    </a>
+                    <button type="submit" id="btnEmitirNC" class="btn btn-danger fw-semibold px-4 rounded-3 shadow-sm">
+                        <i class="bi bi-file-earmark-check me-1"></i> Emitir Nota de Crédito SRI
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function recalcularNotaCredito() {
+    let subtotal15 = 0.0;
+
+    document.querySelectorAll('.fila-item-nc').forEach(fila => {
+        const precio = parseFloat(fila.getAttribute('data-precio')) || 0.0;
+        const maxDisp = parseInt(fila.getAttribute('data-disponible'), 10) || 0;
+        const inputCant = fila.querySelector('.inp-cant-devolver');
+        const celdaSub = fila.querySelector('.celda-subtotal-item');
+
+        let cant = parseInt(inputCant.value, 10);
+        if (isNaN(cant) || cant < 0) {
+            cant = 0;
+        }
+        if (cant > maxDisp) {
+            cant = maxDisp;
+            inputCant.value = maxDisp;
+        }
+
+        const subLinea = Math.round((cant * precio) * 100) / 100;
+        celdaSub.textContent = '$' + subLinea.toFixed(2);
+        subtotal15 += subLinea;
+    });
+
+    subtotal15 = Math.round(subtotal15 * 100) / 100;
+    const iva15 = Math.round((subtotal15 * 0.15) * 100) / 100;
+    const totalNC = Math.round((subtotal15 + iva15) * 100) / 100;
+
+    document.getElementById('lblSubtotal15').textContent = '$' + subtotal15.toFixed(2);
+    document.getElementById('lblIva15').textContent = '$' + iva15.toFixed(2);
+    document.getElementById('lblTotalNC').textContent = '$' + totalNC.toFixed(2);
+
+    const btn = document.getElementById('btnEmitirNC');
+    if (btn) {
+        btn.disabled = (totalNC <= 0);
+    }
+}
+
+function aplicarDevolucionTotal() {
+    document.querySelectorAll('.fila-item-nc').forEach(fila => {
+        const maxDisp = parseInt(fila.getAttribute('data-disponible'), 10) || 0;
+        const inputCant = fila.querySelector('.inp-cant-devolver');
+        if (inputCant) {
+            inputCant.value = maxDisp;
+        }
+    });
+    recalcularNotaCredito();
+}
+
+function limpiarCantidades() {
+    document.querySelectorAll('.inp-cant-devolver').forEach(inp => {
+        inp.value = 0;
+    });
+    recalcularNotaCredito();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    recalcularNotaCredito();
+});
+</script>
+{% endblock %}
+

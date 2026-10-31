@@ -18,11 +18,15 @@ SET search_path TO public;
 DROP FUNCTION IF EXISTS public.fn_auditoria_general() CASCADE;
 DROP FUNCTION IF EXISTS public.fn_registrar_auditoria() CASCADE;
 DROP FUNCTION IF EXISTS public.fn_descontar_stock_detalle() CASCADE;
+DROP FUNCTION IF EXISTS public.fn_reintegrar_stock_nc() CASCADE;
+DROP FUNCTION IF EXISTS public.obtener_siguiente_secuencial_nc() CASCADE;
 DROP FUNCTION IF EXISTS public.fn_sync_clientes() CASCADE;
 DROP FUNCTION IF EXISTS public.fn_sync_proveedores() CASCADE;
 DROP FUNCTION IF EXISTS public.fn_sync_facturas() CASCADE;
 
 DROP TABLE IF EXISTS public.auditoria CASCADE;
+DROP TABLE IF EXISTS public.detalle_notas_credito CASCADE;
+DROP TABLE IF EXISTS public.notas_credito CASCADE;
 DROP TABLE IF EXISTS public.detalle_facturas CASCADE;
 DROP TABLE IF EXISTS public.facturas CASCADE;
 DROP TABLE IF EXISTS public.productos CASCADE;
@@ -239,7 +243,48 @@ CREATE TABLE public.detalle_facturas (
         REFERENCES public.productos(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- 4.3 Tabla Centralizada de Auditoría (Trazabilidad JSONB)
+-- 4.3 Cabecera de Notas de Crédito Electrónicas (RIDE / SRI Código 04)
+CREATE TABLE public.notas_credito (
+    id SERIAL PRIMARY KEY,
+    numero_comprobante VARCHAR(30) NOT NULL UNIQUE,
+    id_factura INT NOT NULL,
+    id_cliente INT NOT NULL,
+    id_usuario INT NULL,
+    fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
+    motivo TEXT NOT NULL,
+    subtotal_15 NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (subtotal_15 >= 0),
+    subtotal_0 NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (subtotal_0 >= 0),
+    iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (iva >= 0),
+    total NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (total >= 0),
+    estado VARCHAR(20) NOT NULL DEFAULT 'AUTORIZADA',
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by VARCHAR(50) DEFAULT 'sistema',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_nc_factura FOREIGN KEY (id_factura)
+        REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_nc_cliente FOREIGN KEY (id_cliente)
+        REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_nc_usuario FOREIGN KEY (id_usuario)
+        REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL
+);
+
+-- 4.4 Detalle de Notas de Crédito
+CREATE TABLE public.detalle_notas_credito (
+    id SERIAL PRIMARY KEY,
+    id_nota_credito INT NOT NULL,
+    id_producto INT NOT NULL,
+    cantidad INT NOT NULL CHECK (cantidad > 0),
+    precio_unitario NUMERIC(10, 2) NOT NULL CHECK (precio_unitario >= 0),
+    subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (subtotal >= 0),
+    iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (iva >= 0),
+    total NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (total >= 0),
+    CONSTRAINT fk_detalle_nc FOREIGN KEY (id_nota_credito)
+        REFERENCES public.notas_credito(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT fk_detalle_nc_producto FOREIGN KEY (id_producto)
+        REFERENCES public.productos(id) ON UPDATE CASCADE ON DELETE RESTRICT
+);
+
+-- 4.5 Tabla Centralizada de Auditoría (Trazabilidad JSONB)
 CREATE TABLE public.auditoria (
     id SERIAL PRIMARY KEY,
     id_auditoria INT GENERATED ALWAYS AS (id) STORED,
@@ -493,6 +538,53 @@ CREATE TRIGGER trg_auditoria_usuarios
 AFTER INSERT OR UPDATE OR DELETE ON public.usuarios
 FOR EACH ROW EXECUTE FUNCTION public.fn_auditoria_general();
 
+CREATE TRIGGER trg_auditoria_notas_credito
+AFTER INSERT OR UPDATE OR DELETE ON public.notas_credito
+FOR EACH ROW EXECUTE FUNCTION public.fn_auditoria_general();
+
+-- 5.6 Función para obtener el siguiente secuencial SRI de Nota de Crédito (001-001-XXXXXXXXX)
+CREATE OR REPLACE FUNCTION public.obtener_siguiente_secuencial_nc()
+RETURNS VARCHAR AS $$
+DECLARE
+    v_siguiente INT;
+BEGIN
+    SELECT COALESCE(MAX(id), 0) + 1
+    INTO v_siguiente
+    FROM public.notas_credito;
+
+    RETURN '001-001-' || LPAD(v_siguiente::TEXT, 9, '0');
+END;
+$$ LANGUAGE plpgsql;
+
+-- 5.7 Función y Trigger para reintegrar automáticamente el stock al emitir detalle de Nota de Crédito
+CREATE OR REPLACE FUNCTION public.fn_reintegrar_stock_nc()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.subtotal IS NULL OR NEW.subtotal = 0 THEN
+        NEW.subtotal := ROUND(NEW.cantidad * NEW.precio_unitario, 2);
+    END IF;
+
+    IF NEW.iva IS NULL OR NEW.iva = 0 THEN
+        NEW.iva := ROUND(NEW.subtotal * 0.15, 2);
+    END IF;
+
+    IF NEW.total IS NULL OR NEW.total = 0 THEN
+        NEW.total := ROUND(NEW.subtotal + NEW.iva, 2);
+    END IF;
+
+    UPDATE public.productos
+    SET stock = stock + NEW.cantidad,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.id_producto;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_reintegrar_stock_nc
+BEFORE INSERT ON public.detalle_notas_credito
+FOR EACH ROW EXECUTE FUNCTION public.fn_reintegrar_stock_nc();
+
 -- ==============================================================================
 -- PASO 6: CREACIÓN DE ÍNDICES DE OPTIMIZACIÓN
 -- ==============================================================================
@@ -501,6 +593,7 @@ CREATE INDEX idx_productos_activo ON public.productos(activo);
 CREATE INDEX idx_clientes_cedula_ruc ON public.clientes(cedula_ruc);
 CREATE INDEX idx_clientes_ruc ON public.clientes(ruc);
 CREATE INDEX idx_facturas_numero_estado ON public.facturas(numero, id_estado);
+CREATE INDEX idx_notas_credito_factura ON public.notas_credito(id_factura);
 CREATE INDEX idx_auditoria_tabla_fecha ON public.auditoria(tabla_afectada, fecha_hora DESC);
 
 -- ==============================================================================
