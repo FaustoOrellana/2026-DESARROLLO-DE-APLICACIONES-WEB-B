@@ -251,6 +251,7 @@ CREATE TABLE public.notas_credito (
     secuencial VARCHAR(9) NOT NULL,
     numero_comprobante VARCHAR(30) GENERATED ALWAYS AS (establecimiento || '-' || punto_emision || '-' || secuencial) STORED UNIQUE,
     id_factura INT NOT NULL,
+    numero_factura_modificada VARCHAR(30) NOT NULL,
     id_cliente INT NOT NULL,
     id_usuario INT NULL,
     fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
