@@ -2339,6 +2339,41 @@ def facturacion():
     )
 
 
+def generar_siguiente_numero_factura(cursor):
+    """
+    Calcula el siguiente correlativo secuencial oficial del SRI con formato
+    001-001-XXXXXXXXX (9 dígitos rellenados con ceros, iniciando en 001-001-000000001).
+    """
+    prefijo = "001-001-"
+    cursor.execute("SELECT COALESCE(MAX(id), 0) AS ultimo_id, COUNT(*) AS total FROM facturas;")
+    fila_meta = cursor.fetchone()
+    ultimo_id = int(extraer_columna(fila_meta, 'ultimo_id', 0, 0) or 0)
+    total_reg = int(extraer_columna(fila_meta, 'total', 1, 0) or 0)
+
+    cursor.execute("SELECT numero FROM facturas;")
+    filas_num = cursor.fetchall()
+    max_correlativo = max(ultimo_id, total_reg)
+
+    existentes = set()
+    for fila in filas_num:
+        num_str = str(extraer_columna(fila, 'numero', 0, '') or '').strip().upper()
+        if num_str:
+            existentes.add(num_str)
+            partes = num_str.split('-')
+            if len(partes) >= 3 and partes[-1].isdigit():
+                val = int(partes[-1])
+                if val > max_correlativo:
+                    max_correlativo = val
+
+    siguiente = max_correlativo + 1
+    candidato = f"{prefijo}{siguiente:09d}"
+    while candidato in existentes:
+        siguiente += 1
+        candidato = f"{prefijo}{siguiente:09d}"
+
+    return candidato
+
+
 # 2. AGREGAR FACTURA MANUALMENTE (ADMIN / OPERADOR - SOLO FACTURAS PAGADAS)
 @app.route('/facturacion/formulario', methods=['GET', 'POST'])
 @login_required
@@ -2351,6 +2386,8 @@ def formulario_facturacion():
 
     try:
         cursor = conn.cursor()
+        siguiente_numero = generar_siguiente_numero_factura(cursor)
+
         cursor.execute('SELECT id, nombre, ruc FROM clientes WHERE activo = TRUE ORDER BY nombre ASC;')
         clientes_bd = cursor.fetchall()
 
@@ -2378,8 +2415,22 @@ def formulario_facturacion():
             for c in clientes_bd
         ]
 
+        if request.method == 'GET':
+            form.numero.data = siguiente_numero
+            if not form.fecha.data:
+                form.fecha.data = datetime.now().date()
+        else:
+            # En POST aseguramos que el valor autogenerado se reciba sin errores de validación
+            if not form.numero.data or not str(form.numero.data).strip():
+                form.numero.data = (request.form.get('numero') or siguiente_numero).strip().upper()
+
         if form.validate_on_submit():
-            numero = form.numero.data.strip().upper()
+            numero = (form.numero.data or siguiente_numero).strip().upper()
+            # Si el correlativo ya fue registrado de forma concurrente, asignar el siguiente
+            cursor.execute('SELECT 1 FROM facturas WHERE numero = %s LIMIT 1;', (numero,))
+            if cursor.fetchone():
+                numero = generar_siguiente_numero_factura(cursor)
+
             fecha = form.fecha.data
             id_cliente = form.cliente.data
             id_estado = 1  # Emisión oficial confirmada (PAGADA)
@@ -2403,7 +2454,9 @@ def formulario_facturacion():
                     sistema=SISTEMA_INFO, 
                     titulo="Nueva Factura", 
                     productos_lista=productos_bd, 
-                    metodos_lista=metodos_bd
+                    metodos_lista=metodos_bd,
+                    siguiente_numero=numero,
+                    numero_sugerido=numero
                 )
 
             items_validos = []
@@ -2430,7 +2483,9 @@ def formulario_facturacion():
                         sistema=SISTEMA_INFO, 
                         titulo="Nueva Factura", 
                         productos_lista=productos_bd, 
-                        metodos_lista=metodos_bd
+                        metodos_lista=metodos_bd,
+                        siguiente_numero=numero,
+                        numero_sugerido=numero
                     )
 
                 subtotal = round(cant * prec, 2)
@@ -2472,7 +2527,9 @@ def formulario_facturacion():
             titulo="Nueva Factura", 
             productos_lista=productos_bd, 
             metodos_lista=metodos_bd, 
-            detalles_guardados=[]
+            detalles_guardados=[],
+            siguiente_numero=form.numero.data or siguiente_numero,
+            numero_sugerido=form.numero.data or siguiente_numero
         )
 
     except Exception as e:
@@ -2587,7 +2644,9 @@ def editar_factura(numero):
                 productos_lista=productos_bd, 
                 metodos_lista=metodos_bd,
                 detalles_guardados=detalles_bd,
-                factura={'id_metodo_pago': fac_id_metodo}
+                factura={'id_metodo_pago': fac_id_metodo},
+                siguiente_numero=fac_num,
+                numero_sugerido=fac_num
             )
 
         elif form.validate_on_submit():
@@ -3507,22 +3566,8 @@ def finalizar_compra():
             monto_total += subtotal_item
             items_a_procesar.append((id_prod, cant_solicitada, precio_real, subtotal_item))
 
-        # 3. Secuencial de Factura seguro
-        anio_actual = datetime.now().year
-        prefijo = f"FAC-{anio_actual}-"
-
-        cursor.execute('SELECT numero FROM facturas WHERE numero LIKE %s ORDER BY id DESC LIMIT 50;', (f"{prefijo}%",))
-        filas_numeros = cursor.fetchall()
-        max_secuencial = 0
-        for f_num in filas_numeros:
-            cadena_num = extraer_columna(f_num, 'numero', 0, '')
-            partes = cadena_num.split('-')
-            if len(partes) >= 3 and partes[-1].isdigit():
-                val = int(partes[-1])
-                if val > max_secuencial:
-                    max_secuencial = val
-
-        numero_factura = f"{prefijo}{max_secuencial + 1:03d}"
+        # 3. Secuencial de Factura seguro bajo formato oficial SRI (001-001-XXXXXXXXX)
+        numero_factura = generar_siguiente_numero_factura(cursor)
 
         # 4. Insertar Factura con estado dinámico (Pagada si es tarjeta, Pendiente si es transferencia/efectivo)
         cursor.execute('''

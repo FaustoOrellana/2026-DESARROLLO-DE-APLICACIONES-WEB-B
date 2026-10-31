@@ -26,7 +26,7 @@
                     <div class="row g-3 mb-3">
                         <div class="col-12 col-md-4">
                             {{ form.numero.label(class="form-label text-dark fw-semibold") }}
-                            {{ form.numero(class="form-control" + (" is-invalid" if form.numero.errors else ""), placeholder="Ej: FAC-2026-026") }}
+                            {{ form.numero(class="form-control bg-light fw-bold font-monospace text-primary" + (" is-invalid" if form.numero.errors else ""), value=(form.numero.data or siguiente_numero or numero_sugerido or '001-001-000000001'), readonly=True, placeholder="001-001-000000001") }}
                             {% for e in form.numero.errors %}
                                 <div class="invalid-feedback d-block">{{ e }}</div>
                             {% endfor %}
