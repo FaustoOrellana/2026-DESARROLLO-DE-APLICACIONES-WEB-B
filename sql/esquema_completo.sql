@@ -246,7 +246,7 @@ CREATE TABLE public.detalle_facturas (
 -- 4.3 Cabecera de Notas de Crédito Electrónicas (RIDE / SRI Código 04)
 CREATE TABLE public.notas_credito (
     id SERIAL PRIMARY KEY,
-    numero_comprobante VARCHAR(30) NOT NULL UNIQUE,
+    numero_comprobante VARCHAR(30) GENERATED ALWAYS AS ('001-001-' || LPAD(id::TEXT, 9, '0')) STORED UNIQUE,
     id_factura INT NOT NULL,
     id_cliente INT NOT NULL,
     id_usuario INT NULL,

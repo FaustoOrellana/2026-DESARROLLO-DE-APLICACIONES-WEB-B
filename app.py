@@ -3439,7 +3439,7 @@ def asegurar_esquema_notas_credito(conn):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS public.notas_credito (
                 id SERIAL PRIMARY KEY,
-                numero_comprobante VARCHAR(30) NOT NULL UNIQUE,
+                numero_comprobante VARCHAR(30) GENERATED ALWAYS AS ('001-001-' || LPAD(id::TEXT, 9, '0')) STORED UNIQUE,
                 id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -3728,13 +3728,6 @@ def emitir_nota_credito(id_factura):
                     sistema=SISTEMA_INFO
                 )
 
-            # Verificar unicidad del secuencial NC antes de insertar
-            cursor.execute("SELECT 1 FROM public.notas_credito WHERE numero_comprobante = %s LIMIT 1;", (numero_nc,))
-            if cursor.fetchone():
-                cursor.execute("SELECT public.obtener_siguiente_secuencial_nc() AS siguiente_nc;")
-                row_nuevo_seq = cursor.fetchone()
-                numero_nc = str(extraer_columna(row_nuevo_seq, 'siguiente_nc', 0, secuencial_nc))
-
             # Detectar columnas existentes en public.notas_credito para inserción segura
             cursor.execute("""
                 SELECT column_name
@@ -3745,8 +3738,8 @@ def emitir_nota_credito(id_factura):
 
             col_motivo_nc = 'motivo_modificacion' if 'motivo_modificacion' in cols_nc else 'motivo'
             col_subtotal_nc = 'subtotal' if 'subtotal' in cols_nc else 'subtotal_15'
-            columnas_insert = ['numero_comprobante', 'id_factura', 'id_cliente', col_motivo_nc, col_subtotal_nc, 'iva', 'total']
-            valores_insert = [numero_nc, fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum]
+            columnas_insert = ['id_factura', 'id_cliente', col_motivo_nc, col_subtotal_nc, 'iva', 'total']
+            valores_insert = [fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum]
 
             if 'id_usuario' in cols_nc:
                 columnas_insert.append('id_usuario')
@@ -3761,14 +3754,15 @@ def emitir_nota_credito(id_factura):
             placeholders_nc = ', '.join(['%s'] * len(columnas_insert))
             cols_nc_sql = ', '.join(columnas_insert)
 
-            # Insertar cabecera en public.notas_credito
+            # Insertar cabecera en public.notas_credito (numero_comprobante es GENERATED ALWAYS en PostgreSQL)
             cursor.execute(f'''
                 INSERT INTO public.notas_credito ({cols_nc_sql})
                 VALUES ({placeholders_nc})
-                RETURNING id;
+                RETURNING id, numero_comprobante;
             ''', tuple(valores_insert))
             res_nc = cursor.fetchone()
             id_nota_credito = int(extraer_columna(res_nc, 'id', 0))
+            numero_nc = str(extraer_columna(res_nc, 'numero_comprobante', 1, secuencial_nc) or secuencial_nc)
 
             # Insertar detalle en public.detalle_notas_credito (el trigger trg_reintegrar_stock_nc devuelve el stock automáticamente)
             for item_nc in lineas_devolucion:
