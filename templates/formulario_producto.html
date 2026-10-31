@@ -3,6 +3,31 @@
 {% block title %}{{ titulo if titulo else "Formulario de Producto" }} | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
+<style>
+    .preview-zoom-wrapper {
+        position: relative;
+        width: 100%;
+        max-width: 240px;
+        height: 180px;
+        overflow: hidden;
+        border-radius: 0.75rem;
+        border: 1px solid #dee2e6;
+        background-color: #f8f9fa;
+        cursor: zoom-in;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .preview-zoom-wrapper img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        transition: transform 0.2s ease-out;
+        transform-origin: center center;
+        padding: 0.5rem;
+    }
+</style>
+
 <div class="container my-4">
     <div class="row justify-content-center">
         <div class="col-md-8 col-lg-7">
@@ -19,7 +44,7 @@
 
             <!-- Tarjeta del Formulario -->
             <div class="card border-0 shadow-sm rounded-4 p-4">
-                <form method="POST" novalidate>
+                <form method="POST" enctype="multipart/form-data" novalidate>
                     {{ form.hidden_tag() }}
 
                     <!-- Nombre del Producto -->
@@ -75,6 +100,37 @@
                         </div>
                     </div>
 
+                    <!-- Imagen del Producto con Previsualización Dinámica y Zoom -->
+                    {% set img_file = imagen_actual if imagen_actual else 'default_producto.png' %}
+                    <div class="mb-4">
+                        <label for="inputImagenProducto" class="form-label text-dark fw-semibold">
+                            <i class="bi bi-image me-1 text-primary"></i> Imagen del Producto
+                        </label>
+                        <div class="row g-3 align-items-center">
+                            <div class="col-sm-7">
+                                <input type="file"
+                                       id="inputImagenProducto"
+                                       name="imagen"
+                                       class="form-control"
+                                       accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+                                <div class="form-text text-muted small mt-1">
+                                    Formatos permitidos: <strong>.png, .jpg, .jpeg, .webp</strong>. Si no selecciona una imagen, se asignará o conservará la imagen actual.
+                                </div>
+                            </div>
+                            <div class="col-sm-5 d-flex flex-column align-items-center">
+                                <div class="preview-zoom-wrapper shadow-sm" id="contenedorZoomPreview" title="Pase el cursor para hacer zoom">
+                                    <img id="imgPreviewProducto"
+                                         src="{{ url_for('static', filename='uploads/productos/' ~ img_file) }}"
+                                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='img/TechManager_Emblem.png') }}';"
+                                         alt="Vista previa del producto">
+                                </div>
+                                <span class="badge bg-light text-secondary border mt-2 small" id="etiquetaArchivoPreview">
+                                    <i class="bi bi-zoom-in me-1"></i> Vista previa interactiva
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Descripción Opcional -->
                     {% if form.descripcion %}
                     <div class="mb-4">
@@ -96,4 +152,53 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const inputImagen = document.getElementById('inputImagenProducto');
+    const imgPreview = document.getElementById('imgPreviewProducto');
+    const etiquetaPreview = document.getElementById('etiquetaArchivoPreview');
+    const contenedorZoom = document.getElementById('contenedorZoomPreview');
+
+    // 1. Previsualización dinámica al seleccionar archivo
+    if (inputImagen && imgPreview) {
+        inputImagen.addEventListener('change', function(event) {
+            const archivo = event.target.files[0];
+            if (!archivo) return;
+
+            const extensionesValidas = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+            if (!extensionesValidas.includes(archivo.type)) {
+                alert('Por favor seleccione un archivo de imagen válido (.png, .jpg, .jpeg o .webp).');
+                inputImagen.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imgPreview.src = e.target.result;
+                if (etiquetaPreview) {
+                    etiquetaPreview.innerHTML = '<i class="bi bi-check2-circle text-success me-1"></i> ' + archivo.name;
+                }
+            };
+            reader.readAsDataURL(archivo);
+        });
+    }
+
+    // 2. Efecto lupa / zoom interactivo en la vista previa
+    if (contenedorZoom && imgPreview) {
+        contenedorZoom.addEventListener('mousemove', function(e) {
+            const rect = contenedorZoom.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+            imgPreview.style.transformOrigin = `${x}% ${y}%`;
+            imgPreview.style.transform = 'scale(2.2)';
+        });
+
+        contenedorZoom.addEventListener('mouseleave', function() {
+            imgPreview.style.transformOrigin = 'center center';
+            imgPreview.style.transform = 'scale(1)';
+        });
+    }
+});
+</script>
 {% endblock %}

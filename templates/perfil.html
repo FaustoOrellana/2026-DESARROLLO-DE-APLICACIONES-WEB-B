@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{% block title %}Mi Perfil | {{ sistema.nombre_sistema }}{% endblock %}
+
+{% block content %}
+<div class="w-100">
+    <!-- Encabezado de la sección -->
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
+        <div>
+            <span class="text-primary fw-bold text-uppercase tracking-wider small d-block">
+                <i class="bi bi-person-gear me-1"></i>Configuración de Cuenta
+            </span>
+            <h2 class="fw-bold text-dark m-0">Mi Perfil de Usuario</h2>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            {% if current_user.tiene_rol('admin', 'operador') %}
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm px-3 py-2 rounded-3 shadow-sm">
+                <i class="bi bi-arrow-left me-1"></i> Volver al Dashboard
+            </a>
+            {% else %}
+            <a href="{{ url_for('mis_facturas') }}" class="btn btn-outline-secondary btn-sm px-3 py-2 rounded-3 shadow-sm">
+                <i class="bi bi-arrow-left me-1"></i> Volver a Mis Compras
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Diseño de 2 columnas (Columna 1: Resumen / Columna 2: Formulario + Seguridad) -->
+    <div class="row g-4">
+        <!-- COLUMNA 1: Tarjeta de Resumen de Cuenta -->
+        <div class="col-12 col-lg-4">
+            <div class="card border-0 shadow-sm rounded-4 bg-white h-100 overflow-hidden">
+                <div class="bg-dark text-white p-4 text-center position-relative">
+                    <!-- Avatar circular con icono -->
+                    <div class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-25 border border-2 border-primary text-white mb-3 shadow"
+                         style="width: 92px; height: 92px;">
+                        <i class="bi bi-person-circle" style="font-size: 3.4rem;"></i>
+                    </div>
+                    <h4 class="fw-bold mb-1">{{ perfil.nombre }}</h4>
+                    <p class="text-white-50 font-monospace mb-3">@{{ perfil.usuario }}</p>
+
+                    <!-- Badge de Rol (ADMIN / OPERADOR / CLIENTE) -->
+                    <div class="mb-3">
+                        {% if perfil.rol == 'admin' %}
+                            <span class="badge bg-danger text-uppercase px-3 py-2 rounded-pill shadow-sm">
+                                <i class="bi bi-shield-lock-fill me-1"></i> ADMIN
+                            </span>
+                        {% elif perfil.rol == 'operador' %}
+                            <span class="badge bg-warning text-dark text-uppercase px-3 py-2 rounded-pill shadow-sm">
+                                <i class="bi bi-person-badge-fill me-1"></i> OPERADOR
+                            </span>
+                        {% else %}
+                            <span class="badge bg-info text-dark text-uppercase px-3 py-2 rounded-pill shadow-sm">
+                                <i class="bi bi-person-check-fill me-1"></i> CLIENTE
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Cédula / RUC destacada -->
+                    <div class="bg-white bg-opacity-10 border border-light border-opacity-25 rounded-3 py-2 px-3 d-inline-block">
+                        <span class="text-white-50 small d-block text-uppercase" style="font-size: 0.7rem;">Identificación (Cédula / RUC)</span>
+                        <span class="fw-bold font-monospace fs-6 text-warning">
+                            <i class="bi bi-person-vcard me-1"></i>{{ perfil.cedula if perfil.cedula else 'Sin registrar' }}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="card-body p-4">
+                    <h6 class="text-uppercase text-muted fw-bold small mb-3">
+                        <i class="bi bi-info-circle me-1 text-primary"></i>Ficha de Usuario
+                    </h6>
+
+                    <ul class="list-group list-group-flush small">
+                        <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <span class="text-muted"><i class="bi bi-hash me-2"></i>ID de Usuario</span>
+                            <span class="fw-bold font-monospace text-dark">#{{ perfil.id }}</span>
+                        </li>
+                        <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <span class="text-muted"><i class="bi bi-envelope me-2"></i>Correo</span>
+                            <span class="fw-medium text-dark text-truncate ms-2" style="max-width: 190px;" title="{{ perfil.email }}">{{ perfil.email }}</span>
+                        </li>
+                        <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <span class="text-muted"><i class="bi bi-telephone me-2"></i>Teléfono</span>
+                            <span class="fw-medium text-dark">{{ perfil.telefono if perfil.telefono else 'No registrado' }}</span>
+                        </li>
+                        <li class="list-group-item px-0 py-2">
+                            <span class="text-muted d-block mb-1"><i class="bi bi-geo-alt me-2"></i>Dirección de Domicilio</span>
+                            <span class="fw-medium text-dark d-block ps-4">{{ perfil.direccion if perfil.direccion else 'No registrada' }}</span>
+                        </li>
+                        <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <span class="text-muted"><i class="bi bi-activity me-2"></i>Estado de Cuenta</span>
+                            {% if perfil.activo %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1">
+                                    <i class="bi bi-check-circle-fill me-1"></i>Activa
+                                </span>
+                            {% else %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1">
+                                    Inactiva
+                                </span>
+                            {% endif %}
+                        </li>
+                        {% if perfil.fecha_registro %}
+                        <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <span class="text-muted"><i class="bi bi-calendar-check me-2"></i>Registro</span>
+                            <span class="text-secondary">{{ perfil.fecha_registro }}</span>
+                        </li>
+                        {% endif %}
+                    </ul>
+
+                    <div class="alert alert-light border rounded-3 mt-4 mb-0 p-3 small text-muted">
+                        <i class="bi bi-shield-check text-primary me-1"></i>
+                        Cada modificación realizada en su perfil es registrada automáticamente en la bitácora de auditoría del sistema.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNA 2: Formulario de Edición y Cambio de Contraseña -->
+        <div class="col-12 col-lg-8">
+            <!-- Tarjeta Principal: Edición de Perfil, Identificación y Domicilio -->
+            <div class="card border-0 shadow-sm rounded-4 bg-white mb-4">
+                <div class="card-header bg-white py-3 px-4 border-bottom">
+                    <h5 class="fw-bold text-dark m-0">
+                        <i class="bi bi-pencil-square text-primary me-2"></i>Información Personal, Identificación y Domicilio
+                    </h5>
+                    <small class="text-muted">Actualice sus datos de facturación y contacto</small>
+                </div>
+
+                <div class="card-body p-4">
+                    <form action="{{ url_for('actualizar_perfil') }}" method="POST" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                        <div class="row g-3">
+                            <!-- Nombre Completo -->
+                            <div class="col-12 col-md-7">
+                                <label for="nombre" class="form-label fw-semibold small text-dark">
+                                    Nombre Completo / Razón Social <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white text-primary"><i class="bi bi-person-badge"></i></span>
+                                    <input type="text"
+                                           id="nombre"
+                                           name="nombre"
+                                           class="form-control"
+                                           value="{{ perfil.nombre }}"
+                                           placeholder="Ingrese su nombre completo"
+                                           required
+                                           minlength="3"
+                                           maxlength="150">
+                                </div>
+                            </div>
+
+                            <!-- Cédula / RUC -->
+                            <div class="col-12 col-md-5">
+                                <label for="cedula" class="form-label fw-semibold small text-dark">
+                                    Cédula / RUC
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white text-primary"><i class="bi bi-person-vcard"></i></span>
+                                    <input type="text"
+                                           id="cedula"
+                                           name="cedula"
+                                           class="form-control font-monospace"
+                                           value="{{ perfil.cedula }}"
+                                           placeholder="10 o 13 dígitos"
+                                           minlength="10"
+                                           maxlength="13"
+                                           pattern="[0-9]{10,13}">
+                                </div>
+                            </div>
+
+                            <!-- Correo Electrónico -->
+                            <div class="col-12 col-md-6">
+                                <label for="email" class="form-label fw-semibold small text-dark">
+                                    Correo Electrónico <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white text-primary"><i class="bi bi-envelope"></i></span>
+                                    <input type="email"
+                                           id="email"
+                                           name="email"
+                                           class="form-control"
+                                           value="{{ perfil.email }}"
+                                           placeholder="usuario@ejemplo.com"
+                                           required
+                                           maxlength="120">
+                                </div>
+                            </div>
+
+                            <!-- Teléfono / Celular -->
+                            <div class="col-12 col-md-6">
+                                <label for="telefono" class="form-label fw-semibold small text-dark">
+                                    Teléfono / Celular
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white text-primary"><i class="bi bi-telephone"></i></span>
+                                    <input type="tel"
+                                           id="telefono"
+                                           name="telefono"
+                                           class="form-control"
+                                           value="{{ perfil.telefono }}"
+                                           placeholder="Ej: 0998877665"
+                                           maxlength="20">
+                                </div>
+                            </div>
+
+                            <!-- Dirección de Domicilio -->
+                            <div class="col-12">
+                                <label for="direccion" class="form-label fw-semibold small text-dark">
+                                    Dirección de Domicilio
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white text-primary"><i class="bi bi-geo-alt"></i></span>
+                                    <textarea id="direccion"
+                                              name="direccion"
+                                              class="form-control"
+                                              rows="2"
+                                              maxlength="300"
+                                              placeholder="Calle principal, intersección, número de casa / edificio y referencia...">{{ perfil.direccion }}</textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-end mt-4 pt-2 border-top">
+                            <button type="submit" class="btn btn-primary fw-semibold px-4 py-2 rounded-3 shadow-sm">
+                                <i class="bi bi-check2-circle me-1"></i> Guardar Cambios
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Tarjeta Colapsable: Seguridad / Cambiar Contraseña -->
+            <div class="accordion shadow-sm rounded-4 overflow-hidden border-0" id="accordionSeguridadPerfil">
+                <div class="accordion-item border-0 bg-white">
+                    <h2 class="accordion-header" id="headingPassword">
+                        <button class="accordion-button collapsed fw-bold text-dark py-3 px-4 bg-white"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#collapsePassword"
+                                aria-expanded="false"
+                                aria-controls="collapsePassword">
+                            <i class="bi bi-key-fill text-warning me-2 fs-5"></i>
+                            <div>
+                                <div>Seguridad / Cambiar Contraseña</div>
+                                <small class="text-muted fw-normal d-block">Actualice su clave de acceso verificando su contraseña actual</small>
+                            </div>
+                        </button>
+                    </h2>
+                    <div id="collapsePassword" class="accordion-collapse collapse" aria-labelledby="headingPassword" data-bs-parent="#accordionSeguridadPerfil">
+                        <div class="accordion-body p-4 border-top bg-light bg-opacity-50">
+                            <form action="{{ url_for('cambiar_password_perfil') }}" method="POST" novalidate>
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                                <div class="row g-3">
+                                    <div class="col-12">
+                                        <label for="password_actual" class="form-label fw-semibold small text-dark">
+                                            Contraseña Actual <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-white text-secondary"><i class="bi bi-lock"></i></span>
+                                            <input type="password"
+                                                   id="password_actual"
+                                                   name="password_actual"
+                                                   class="form-control"
+                                                   placeholder="Ingrese su contraseña actual"
+                                                   required>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-12 col-md-6">
+                                        <label for="nueva_password" class="form-label fw-semibold small text-dark">
+                                            Nueva Contraseña <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-white text-primary"><i class="bi bi-shield-lock"></i></span>
+                                            <input type="password"
+                                                   id="nueva_password"
+                                                   name="nueva_password"
+                                                   class="form-control"
+                                                   placeholder="Mínimo 6 caracteres"
+                                                   minlength="6"
+                                                   required>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-12 col-md-6">
+                                        <label for="confirmar_password" class="form-label fw-semibold small text-dark">
+                                            Confirmar Nueva Contraseña <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-white text-primary"><i class="bi bi-check2-all"></i></span>
+                                            <input type="password"
+                                                   id="confirmar_password"
+                                                   name="confirmar_password"
+                                                   class="form-control"
+                                                   placeholder="Repita la nueva contraseña"
+                                                   minlength="6"
+                                                   required>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-end mt-4">
+                                    <button type="submit" class="btn btn-warning text-dark fw-semibold px-4 py-2 rounded-3 shadow-sm">
+                                        <i class="bi bi-key me-1"></i> Actualizar Contraseña
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

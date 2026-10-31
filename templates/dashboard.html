@@ -192,14 +192,14 @@
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                                 
-                                <!-- Botón de Comprobante con bloqueo condicional -->
+                                <!-- Botón de Comprobante PDF con bloqueo condicional -->
                                 {% if f.id_estado == 1 or f.estado|lower == 'pagada' %}
-                                <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" target="_blank" class="btn btn-outline-primary rounded-3 px-2" title="Imprimir Comprobante">
-                                    <i class="bi bi-printer"></i>
+                                <a href="{{ url_for('descargar_factura', id_factura=f.id) }}" class="btn btn-outline-danger rounded-3 px-2" title="Descargar RIDE PDF (SRI)">
+                                    <i class="bi bi-file-earmark-pdf-fill"></i>
                                 </a>
                                 {% else %}
-                                <button type="button" class="btn btn-outline-secondary rounded-3 px-2 opacity-50" disabled title="Impresión bloqueada: Factura Pendiente o Anulada">
-                                    <i class="bi bi-printer-fill"></i>
+                                <button type="button" class="btn btn-outline-secondary rounded-3 px-2 opacity-50" disabled title="Descarga bloqueada: Factura Pendiente o Anulada">
+                                    <i class="bi bi-file-earmark-pdf"></i>
                                 </button>
                                 {% endif %}
                             </div>
@@ -250,6 +250,20 @@
                     <small class="text-muted">Historial contable</small>
                 </a>
             </div>
+            {% if current_user.es_admin() %}
+            <div class="col-12">
+                <a href="{{ url_for('auditoria') }}" class="btn btn-outline-dark w-100 py-3 rounded-3 text-start shadow-sm d-flex align-items-center justify-content-between px-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <i class="bi bi-shield-lock fs-3 text-danger"></i>
+                        <div>
+                            <strong class="d-block">Bitácora de Auditoría del Sistema</strong>
+                            <small class="text-muted">Inspección de operaciones (INSERT, UPDATE, SOFT_DELETE, DELETE) y trazabilidad JSONB</small>
+                        </div>
+                    </div>
+                    <i class="bi bi-chevron-right fs-5"></i>
+                </a>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

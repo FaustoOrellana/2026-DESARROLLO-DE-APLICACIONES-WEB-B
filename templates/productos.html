@@ -1,8 +1,89 @@
 {% extends "base.html" %}
+{% from 'components/_paginacion.html' import render_paginacion %}
 
 {% block title %}Productos | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
+<style>
+    /* Miniatura con zoom interactivo en el listado */
+    .producto-thumb-zoom {
+        position: relative;
+        width: 58px;
+        height: 58px;
+        overflow: hidden;
+        border-radius: 0.65rem;
+        border: 1px solid #e2e8f0;
+        background-color: #f8fafc;
+        cursor: zoom-in;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    .producto-thumb-zoom img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.2s ease-out;
+        transform-origin: center center;
+    }
+
+    /* Visor de detalle con lupa interactiva en modal */
+    .visor-zoom-interactivo {
+        position: relative;
+        width: 100%;
+        height: 360px;
+        overflow: hidden;
+        border-radius: 1rem;
+        border: 1px solid #dee2e6;
+        background: radial-gradient(circle, #ffffff 0%, #f1f5f9 100%);
+        cursor: zoom-in;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .visor-zoom-interactivo img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        transition: transform 0.18s ease-out;
+        transform-origin: center center;
+        user-select: none;
+        pointer-events: none;
+    }
+    .badge-lupa-hint {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        background: rgba(15, 23, 42, 0.72);
+        color: #fff;
+        font-size: 0.75rem;
+        padding: 0.35rem 0.7rem;
+        border-radius: 50rem;
+        pointer-events: none;
+        backdrop-filter: blur(4px);
+    }
+    .fila-producto-inactivo {
+        background-color: #f8f9fa;
+        opacity: 0.85;
+    }
+</style>
+
+{% set estado_sel = estado_actual if estado_actual is defined else 'activos' %}
+{% set conteos = conteos_estado if conteos_estado is defined else {'activos': total_items, 'inactivos': 0, 'todos': total_items} %}
+
+{% if current_user.rol == 'admin' %}
+<div id="bulkActionsConfig"
+     data-bulk-endpoint="{{ url_for('eliminar_productos_masivo') }}"
+     data-bulk-mode="delete"
+     data-bulk-module="Productos"></div>
+{% elif current_user.rol == 'usuario' %}
+<div id="bulkActionsConfig"
+     data-bulk-endpoint="/carrito/agregar-masivo"
+     data-bulk-mode="cart"
+     data-bulk-module="Catálogo de Productos"></div>
+{% endif %}
+
 <div class="w-100">
     <!-- Encabezado de la Sección -->
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
@@ -11,7 +92,15 @@
             <h2 class="fw-bold text-dark m-0">Productos</h2>
         </div>
         <div class="d-flex align-items-center gap-2 gap-sm-3 flex-wrap">
-            <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">Total Activos: {{ total_items }}</span>
+            <span class="badge bg-primary fs-6 px-3 py-2 rounded-3">
+                {% if estado_sel == 'inactivos' %}
+                    Total Inactivos: {{ total_items }}
+                {% elif estado_sel == 'todos' %}
+                    Total Registrados: {{ total_items }}
+                {% else %}
+                    Total Activos: {{ total_items }}
+                {% endif %}
+            </span>
             {% if current_user.rol in ['admin', 'operador'] %}
             <a href="{{ url_for('formulario_producto') }}" class="btn btn-primary fw-semibold px-3 py-2 rounded-3 text-nowrap shadow-sm">
                 <i class="bi bi-plus-lg me-1"></i> Nuevo Producto
@@ -20,10 +109,40 @@
         </div>
     </div>
 
+    <!-- Pestañas de Filtro de Visibilidad (Exclusivo para Administrador) -->
+    {% if current_user.rol == 'admin' %}
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <div class="btn-group shadow-sm rounded-3 bg-white p-1 border" role="group" aria-label="Filtro de estado de productos">
+            <a href="{{ url_for('productos', estado='activos', q=q if q else None) }}"
+               class="btn btn-sm rounded-2 fw-semibold px-3 py-2 {% if estado_sel == 'activos' %}btn-primary shadow-sm{% else %}btn-light text-secondary{% endif %}">
+                <i class="bi bi-check-circle me-1"></i> Activos
+                <span class="badge {% if estado_sel == 'activos' %}bg-white text-primary{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1 rounded-pill">{{ conteos.activos }}</span>
+            </a>
+            <a href="{{ url_for('productos', estado='inactivos', q=q if q else None) }}"
+               class="btn btn-sm rounded-2 fw-semibold px-3 py-2 {% if estado_sel == 'inactivos' %}btn-secondary shadow-sm{% else %}btn-light text-secondary{% endif %}">
+                <i class="bi bi-archive me-1"></i> Inactivos / Archivados
+                <span class="badge {% if estado_sel == 'inactivos' %}bg-white text-dark{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1 rounded-pill">{{ conteos.inactivos }}</span>
+            </a>
+            <a href="{{ url_for('productos', estado='todos', q=q if q else None) }}"
+               class="btn btn-sm rounded-2 fw-semibold px-3 py-2 {% if estado_sel == 'todos' %}btn-dark shadow-sm{% else %}btn-light text-secondary{% endif %}">
+                <i class="bi bi-collection me-1"></i> Todos
+                <span class="badge {% if estado_sel == 'todos' %}bg-white text-dark{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1 rounded-pill">{{ conteos.todos }}</span>
+            </a>
+        </div>
+        <small class="text-muted">
+            <i class="bi bi-shield-lock me-1 text-primary"></i>
+            Integridad contable activa: Los productos con facturas emitidas no pueden eliminarse físicamente; utilice <strong>Archivar / Desactivar</strong>.
+        </small>
+    </div>
+    {% endif %}
+
     <!-- Barra de Búsqueda Corporativa (Formulario independiente) -->
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-3">
             <form id="formBusqueda" method="GET" action="{{ url_for('productos') }}" class="row g-2 align-items-center">
+                {% if current_user.rol == 'admin' and estado_sel != 'activos' %}
+                <input type="hidden" name="estado" value="{{ estado_sel }}">
+                {% endif %}
                 <div class="col-md-6 col-lg-5">
                     <div class="input-group">
                         <span class="input-group-text bg-light border-end-0 text-muted">
@@ -37,7 +156,7 @@
                                value="{{ q }}" 
                                autocomplete="off">
                         {% if q %}
-                        <a href="{{ url_for('productos') }}" class="btn btn-outline-secondary border-start-0" title="Limpiar búsqueda">
+                        <a href="{{ url_for('productos', estado=estado_sel if current_user.rol == 'admin' else None) }}" class="btn btn-outline-secondary border-start-0" title="Limpiar búsqueda">
                             <i class="bi bi-x-lg"></i>
                         </a>
                         {% endif %}
@@ -55,12 +174,12 @@
     </div>
 
     <!-- Formulario Único para Selección Masiva y Tabla de Productos -->
-    <form action="{{ url_for('agregar_multiples_carrito') }}" method="POST" id="formSeleccionProductos">
+    <form action="/carrito/agregar-masivo" method="POST" id="formSeleccionProductos">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
         {% if current_user.rol == 'usuario' and productos %}
         <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded-4 shadow-sm">
-            <span class="text-muted small"><i class="bi bi-info-circle me-1"></i> Selecciona varios productos de distintas categorías y asígnale su cantidad para agregarlos todos juntos al carrito.</span>
+            <span class="text-muted small"><i class="bi bi-info-circle me-1"></i> Selecciona varios productos marcando las casillas y asignando su cantidad para agregarlos en lote al carrito.</span>
             <button type="submit" class="btn btn-success fw-bold px-4 py-2 rounded-3 shadow-sm text-nowrap" onclick="limpiarMemoriaSeleccion()">
                 <i class="bi bi-cart-plus-fill me-2"></i> Agregar Selección al Carrito
             </button>
@@ -73,10 +192,13 @@
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light text-nowrap">
                         <tr>
-                            {% if current_user.rol == 'usuario' %}
-                            <th class="ps-4" style="width: 40px;"><input type="checkbox" id="seleccionarTodos" class="form-check-input" title="Seleccionar todos"></th>
+                            {% if current_user.rol in ['admin', 'usuario'] %}
+                            <th class="ps-4" style="width: 44px;">
+                                <input type="checkbox" id="selectAll" class="form-check-input" title="Seleccionar todos los registros de la página">
+                            </th>
                             {% endif %}
-                            <th class="{% if current_user.rol != 'usuario' %}ps-4{% endif %}">ID</th>
+                            <th class="{% if current_user.rol not in ['admin', 'usuario'] %}ps-4{% endif %}">ID</th>
+                            <th>Imagen</th>
                             <th>Nombre del Producto</th>
                             <th>Descripción</th>
                             <th>Categoría</th>
@@ -88,16 +210,56 @@
                     </thead>
                     <tbody>
                         {% for p in productos %}
-                        <tr>
-                            {% if current_user.rol == 'usuario' %}
+                        {% set img_nombre = p.imagen if p.imagen else 'default_producto.png' %}
+                        {% set img_url = url_for('static', filename='uploads/productos/' ~ img_nombre) %}
+                        {% set es_activo = p.activo if (p is mapping and 'activo' in p) else True %}
+                        <tr class="{% if not es_activo %}fila-producto-inactivo{% endif %}">
+                            {% if current_user.rol in ['admin', 'usuario'] %}
                             <td class="ps-4">
-                                {% if p.stock > 0 %}
-                                    <input type="checkbox" name="productos_seleccionados" value="{{ p.id }}" class="form-check-input check-producto" data-id="{{ p.id }}">
-                                {% endif %}
+                                <input type="checkbox"
+                                       name="productos_seleccionados"
+                                       value="{{ p.id }}"
+                                       class="form-check-input bulk-check check-producto"
+                                       data-id="{{ p.id }}"
+                                       {% if current_user.rol == 'usuario' and (p.stock <= 0 or not es_activo) %}disabled title="Producto no disponible para venta"{% endif %}>
                             </td>
                             {% endif %}
-                            <td class="{% if current_user.rol != 'usuario' %}ps-4{% endif %} fw-bold text-secondary">#{{ p.id }}</td>
-                            <td class="fw-semibold text-dark">{{ p.nombre }}</td>
+                            <td class="{% if current_user.rol not in ['admin', 'usuario'] %}ps-4{% endif %} fw-bold text-secondary">#{{ p.id }}</td>
+                            <td>
+                                <div class="producto-thumb-zoom js-zoom-container"
+                                     title="Pase el cursor para zoom o haga clic para ampliar"
+                                     data-bs-toggle="modal"
+                                     data-bs-target="#modalZoomProducto"
+                                     data-nombre="{{ p.nombre }}"
+                                     data-categoria="{{ p.categoria }}"
+                                     data-precio="{{ '%.2f'|format(p.precio) }}"
+                                     data-stock="{{ p.stock }}"
+                                     data-descripcion="{{ p.descripcion or 'Sin descripción registrada.' }}"
+                                     data-imagen="{{ img_url }}"
+                                     onclick="abrirModalZoomProducto(this)">
+                                    <img src="{{ img_url }}"
+                                         class="js-zoom-img"
+                                         onerror="this.onerror=null; this.src='{{ url_for('static', filename='img/TechManager_Emblem.png') }}';"
+                                         alt="{{ p.nombre }}">
+                                </div>
+                            </td>
+                            <td class="fw-semibold {% if es_activo %}text-dark{% else %}text-muted{% endif %}">
+                                {{ p.nombre }}
+                                <button type="button"
+                                        class="btn btn-link btn-sm p-0 ms-1 text-primary text-decoration-none"
+                                        title="Inspeccionar imagen con lupa"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalZoomProducto"
+                                        data-nombre="{{ p.nombre }}"
+                                        data-categoria="{{ p.categoria }}"
+                                        data-precio="{{ '%.2f'|format(p.precio) }}"
+                                        data-stock="{{ p.stock }}"
+                                        data-descripcion="{{ p.descripcion or 'Sin descripción registrada.' }}"
+                                        data-imagen="{{ img_url }}"
+                                        onclick="abrirModalZoomProducto(this)">
+                                    <i class="bi bi-zoom-in"></i>
+                                </button>
+                            </td>
                             <td class="text-muted small text-truncate" style="max-width: 200px;" title="{{ p.descripcion or 'Sin descripción' }}">
                                 {{ p.descripcion if p.descripcion else '<span class="fst-italic text-black-50">Sin descripción</span>'|safe }}
                             </td>
@@ -107,7 +269,11 @@
                             <td class="fw-medium">${{ "%.2f"|format(p.precio) }}</td>
                             <td>{{ p.stock }} unidades</td>
                             <td>
-                                {% if p.stock > 0 %}
+                                {% if not es_activo %}
+                                    <span class="badge bg-secondary rounded-pill px-2 py-1">
+                                        <i class="bi bi-archive-fill me-1"></i>Inactivo
+                                    </span>
+                                {% elif p.stock > 0 %}
                                     <span class="badge bg-success rounded-pill px-2 py-1">Disponible</span>
                                 {% else %}
                                     <span class="badge bg-danger rounded-pill px-2 py-1">Agotado</span>
@@ -115,13 +281,15 @@
                             </td>
                             <td class="text-end pe-4 text-nowrap">
                                 {% if current_user.rol == 'usuario' %}
-                                    {% if p.stock > 0 %}
+                                    {% if es_activo and p.stock > 0 %}
                                         <div class="d-inline-flex align-items-center justify-content-end gap-1">
                                             <input type="number" name="cantidad_{{ p.id }}" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center fw-bold rounded-2 input-cantidad" data-id="{{ p.id }}" style="width: 65px;" title="Cantidad">
                                             <button type="submit" formaction="{{ url_for('agregar_al_carrito', id_producto=p.id) }}" class="btn btn-outline-primary btn-sm rounded-3 shadow-sm px-2" title="Agregar solo este producto" onclick="limpiarMemoriaSeleccion()">
                                                 <i class="bi bi-cart-plus"></i> Agregar
                                             </button>
                                         </div>
+                                    {% elif not es_activo %}
+                                        <span class="badge bg-secondary">No disponible</span>
                                     {% else %}
                                         <span class="badge bg-secondary">Sin Stock</span>
                                     {% endif %}
@@ -130,18 +298,37 @@
                                         <a href="{{ url_for('editar_producto', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
                                             <i class="bi bi-pencil-square"></i> Editar
                                         </a>
-                                        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar">
-                                            <i class="bi bi-trash"></i> Eliminar
-                                        </button>
+                                        {% if current_user.rol == 'admin' %}
+                                            {% if es_activo %}
+                                            <button type="submit"
+                                                    formaction="{{ url_for('cambiar_estado_producto', id=p.id) }}"
+                                                    formmethod="POST"
+                                                    class="btn btn-outline-secondary"
+                                                    title="Archivar / Desactivar producto sin borrar su historial">
+                                                <i class="bi bi-archive"></i> Archivar/Desactivar
+                                            </button>
+                                            {% else %}
+                                            <button type="submit"
+                                                    formaction="{{ url_for('cambiar_estado_producto', id=p.id) }}"
+                                                    formmethod="POST"
+                                                    class="btn btn-outline-success fw-semibold"
+                                                    title="Reactivar producto para que vuelva al catálogo activo">
+                                                <i class="bi bi-arrow-counterclockwise"></i> Reactivar
+                                            </button>
+                                            {% endif %}
+                                            <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminar{{ p.id }}" title="Eliminar físicamente (solo si no tiene facturas)">
+                                                <i class="bi bi-trash"></i> Eliminar
+                                            </button>
+                                        {% endif %}
                                     </div>
                                 {% endif %}
                             </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="9" class="text-center py-5 text-muted">
+                            <td colspan="10" class="text-center py-5 text-muted">
                                 <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
-                                No se encontraron productos activos con los criterios ingresados.
+                                No se encontraron productos con los criterios seleccionados.
                             </td>
                         </tr>
                         {% endfor %}
@@ -149,37 +336,61 @@
                 </table>
             </div>
 
-            <!-- Paginación de Registros -->
-            {% if total_pages > 1 %}
-            <div class="card-footer bg-white border-0 py-3">
-                <nav aria-label="Navegación de páginas">
-                    <ul class="pagination pagination-sm justify-content-center m-0 gap-1">
-                        <li class="page-item {{ 'disabled' if page <= 1 }}">
-                            <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page-1, q=q) }}">
-                                <i class="bi bi-chevron-left me-1"></i> Anterior
-                            </a>
-                        </li>
-                        
-                        {% for num in range(1, total_pages + 1) %}
-                        <li class="page-item {{ 'active' if num == page }}">
-                            <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=num, q=q) }}">{{ num }}</a>
-                        </li>
-                        {% endfor %}
-
-                        <li class="page-item {{ 'disabled' if page >= total_pages }}">
-                            <a class="page-link rounded-3 px-3" href="{{ url_for('productos', page=page+1, q=q) }}">
-                                Siguiente <i class="bi bi-chevron-right ms-1"></i>
-                            </a>
-                        </li>
-                    </ul>
-                </nav>
-            </div>
-            {% endif %}
+            <!-- Paginación Estandarizada de Registros -->
+            {{ render_paginacion(paginador, 'productos') }}
         </div>
     </form>
 </div>
 
-<!-- Modales de Confirmación de Baja de Producto -->
+<!-- Modal de Detalle e Inspección con Lupa / Zoom Interactivo -->
+<div class="modal fade" id="modalZoomProducto" tabindex="-1" aria-labelledby="modalZoomProductoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title fw-bold" id="modalZoomProductoLabel">
+                    <i class="bi bi-zoom-in me-2 text-info"></i> Visor Interactivo de Producto
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="row g-4 align-items-center">
+                    <div class="col-md-7">
+                        <div class="visor-zoom-interactivo js-zoom-container" id="visorModalZoom">
+                            <img id="modalZoomImg"
+                                 src="{{ url_for('static', filename='uploads/productos/default_producto.png') }}"
+                                 class="js-zoom-img"
+                                 onerror="this.onerror=null; this.src='{{ url_for('static', filename='img/TechManager_Emblem.png') }}';"
+                                 alt="Imagen del producto">
+                            <span class="badge-lupa-hint">
+                                <i class="bi bi-arrows-fullscreen me-1"></i> Mueva el cursor para aplicar zoom (2.4x)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <span class="badge bg-info text-white rounded-2 px-2 py-1 mb-2" id="modalZoomCategoria">Categoría</span>
+                        <h4 class="fw-bold text-dark mb-2" id="modalZoomNombre">Nombre del Producto</h4>
+                        <div class="fs-4 fw-bold text-primary mb-3">
+                            $<span id="modalZoomPrecio">0.00</span>
+                            <small class="text-muted fs-6 fw-normal ms-1">({{ sistema.moneda }})</small>
+                        </div>
+                        <p class="text-secondary small mb-3" id="modalZoomDescripcion">Descripción del producto.</p>
+                        <div class="p-3 bg-light rounded-3 border">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted small fw-semibold">Disponibilidad en Stock:</span>
+                                <span class="fw-bold text-dark" id="modalZoomStock">0 unidades</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0">
+                <button type="button" class="btn btn-secondary rounded-3 px-4" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modales de Confirmación de Eliminación Individual de Producto -->
 {% if current_user.rol in ['admin', 'operador'] %}
     {% for p in productos %}
     <div class="modal fade" id="modalEliminar{{ p.id }}" tabindex="-1" aria-labelledby="modalLabel{{ p.id }}" aria-hidden="true">
@@ -187,14 +398,17 @@
             <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
                 <div class="modal-header bg-danger text-white">
                     <h5 class="modal-title fw-bold" id="modalLabel{{ p.id }}">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación Definitiva
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body py-4">
-                    <p class="mb-1 text-secondary">¿Está seguro de que desea retirar del catálogo el siguiente producto?</p>
-                    <p class="fw-bold text-dark fs-5 mb-1">#{{ p.id }} - {{ p.nombre }}</p>
-                    <small class="text-muted">El registro dejará de mostrarse en las operaciones activas del sistema.</small>
+                    <p class="mb-1 text-secondary">¿Está seguro de que desea eliminar permanentemente el siguiente producto?</p>
+                    <p class="fw-bold text-dark fs-5 mb-2">#{{ p.id }} - {{ p.nombre }}</p>
+                    <div class="alert alert-warning border-0 rounded-3 small mb-0">
+                        <i class="bi bi-shield-exclamation me-1"></i>
+                        <strong>Regla de Integridad Contable:</strong> Si este producto registra comprobantes emitidos en <code>detalle_facturas</code>, la eliminación será bloqueada. Para retirarlo de la venta conservando su historial, utilice el botón <strong>Archivar/Desactivar</strong>.
+                    </div>
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
@@ -211,9 +425,54 @@
     {% endfor %}
 {% endif %}
 
-<!-- Script de Búsqueda y Persistencia de Selección -->
+<!-- Script Modular de Selección Múltiple y Acciones en Lote -->
+<script src="{{ url_for('static', filename='js/bulk_actions.js') }}"></script>
+
+<!-- Script de Búsqueda, Zoom Interactivo y Persistencia de Selección -->
 <script>
+function abrirModalZoomProducto(elemento) {
+    const imgModal = document.getElementById('modalZoomImg');
+    const nombreModal = document.getElementById('modalZoomNombre');
+    const catModal = document.getElementById('modalZoomCategoria');
+    const precioModal = document.getElementById('modalZoomPrecio');
+    const stockModal = document.getElementById('modalZoomStock');
+    const descModal = document.getElementById('modalZoomDescripcion');
+
+    if (imgModal) {
+        imgModal.style.transform = 'scale(1)';
+        imgModal.style.transformOrigin = 'center center';
+        imgModal.src = elemento.dataset.imagen || "{{ url_for('static', filename='uploads/productos/default_producto.png') }}";
+    }
+    if (nombreModal) nombreModal.textContent = elemento.dataset.nombre || 'Producto';
+    if (catModal) catModal.textContent = elemento.dataset.categoria || 'General';
+    if (precioModal) precioModal.textContent = elemento.dataset.precio || '0.00';
+    if (stockModal) stockModal.textContent = (elemento.dataset.stock || '0') + ' unidades';
+    if (descModal) descModal.textContent = elemento.dataset.descripcion || 'Sin descripción.';
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    // --- EFECTO LUPA / ZOOM INTERACTIVO (MINIATURAS Y MODAL) ---
+    const contenedoresZoom = document.querySelectorAll('.js-zoom-container');
+    contenedoresZoom.forEach(contenedor => {
+        const img = contenedor.querySelector('.js-zoom-img');
+        if (!img) return;
+
+        const escala = contenedor.id === 'visorModalZoom' ? 2.4 : 2.1;
+
+        contenedor.addEventListener('mousemove', function(e) {
+            const rect = contenedor.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+            img.style.transformOrigin = `${x}% ${y}%`;
+            img.style.transform = `scale(${escala})`;
+        });
+
+        contenedor.addEventListener('mouseleave', function() {
+            img.style.transformOrigin = 'center center';
+            img.style.transform = 'scale(1)';
+        });
+    });
+
     const inputBusqueda = document.getElementById('inputBusqueda');
     const formBusqueda = document.getElementById('formBusqueda');
     let timeoutId;
@@ -227,50 +486,18 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // --- LÓGICA DE PERSISTENCIA CON LOCALSTORAGE ---
-    const checkboxes = document.querySelectorAll('.check-producto');
+    // --- LÓGICA DE PERSISTENCIA DE CANTIDADES CON LOCALSTORAGE ---
     const inputsCantidad = document.querySelectorAll('.input-cantidad');
-
-    // 1. Cargar selecciones previas guardadas al recargar o buscar
-    checkboxes.forEach(cb => {
-        const id = cb.dataset.id;
-        const savedChecked = localStorage.getItem('prod_check_' + id);
-        if (savedChecked === 'true') {
-            cb.checked = true;
-        }
-    });
-
     inputsCantidad.forEach(input => {
         const id = input.dataset.id;
         const savedVal = localStorage.getItem('prod_cant_' + id);
         if (savedVal) {
             input.value = savedVal;
         }
-    });
-
-    // 2. Guardar cambios en localStorage cuando el usuario marca o cambia cantidades
-    checkboxes.forEach(cb => {
-        cb.addEventListener('change', function() {
-            localStorage.setItem('prod_check_' + cb.dataset.id, cb.checked);
-        });
-    });
-
-    inputsCantidad.forEach(input => {
         input.addEventListener('input', function() {
             localStorage.setItem('prod_cant_' + input.dataset.id, input.value);
         });
     });
-
-    // 3. Seleccionar todos
-    const seleccionarTodos = document.getElementById('seleccionarTodos');
-    if (seleccionarTodos) {
-        seleccionarTodos.addEventListener('change', function() {
-            checkboxes.forEach(cb => {
-                cb.checked = seleccionarTodos.checked;
-                localStorage.setItem('prod_check_' + cb.dataset.id, cb.checked);
-            });
-        });
-    }
 });
 
 // Limpiar memoria temporal al enviar el formulario al carrito

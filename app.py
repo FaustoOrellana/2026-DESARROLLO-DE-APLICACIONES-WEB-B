@@ -1,14 +1,19 @@
 import os
 import io
+import csv
+import json
+import uuid
+import shutil
 import random
 import math
 from functools import wraps
 from datetime import datetime, timedelta
-from flask import Flask, redirect, render_template, request, url_for, flash, session, send_file
+from flask import Flask, Response, redirect, render_template, request, url_for, flash, session, send_file, jsonify
 
 # IMPORTACIONES DE AUTENTICACIÓN
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 # Generador de imagen CAPTCHA
 from captcha.image import ImageCaptcha
@@ -27,10 +32,90 @@ from forms.login_form import LoginForm
 # Conexión centralizada con PostgreSQL
 from conexion.conexion import obtener_conexion
 
+# Utilidad de paginación estandarizada y generador RIDE PDF (SRI)
+from utils.paginacion import Paginacion
+from utils.factura_pdf import generar_pdf_ride_sri
+
 from flask_wtf.csrf import CSRFProtect
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'techmanager_dev_fallback_key_2026')
+
+# --- CONFIGURACIÓN DE SUBIDA DE IMÁGENES DE PRODUCTOS ---
+UPLOAD_FOLDER_PRODUCTOS = os.path.join(app.root_path, 'static', 'uploads', 'productos')
+EXTENSIONES_IMAGEN_PERMITIDAS = {'.png', '.jpg', '.jpeg', '.webp'}
+app.config['UPLOAD_FOLDER_PRODUCTOS'] = UPLOAD_FOLDER_PRODUCTOS
+os.makedirs(UPLOAD_FOLDER_PRODUCTOS, exist_ok=True)
+
+# Asegurar imagen por defecto en static/uploads/productos/default_producto.png
+_ruta_default_prod = os.path.join(UPLOAD_FOLDER_PRODUCTOS, 'default_producto.png')
+_ruta_emblem_fallback = os.path.join(app.root_path, 'static', 'img', 'TechManager_Emblem.png')
+if not os.path.exists(_ruta_default_prod) and os.path.exists(_ruta_emblem_fallback):
+    try:
+        shutil.copyfile(_ruta_emblem_fallback, _ruta_default_prod)
+    except Exception:
+        pass
+
+
+_FORTINET_RECUPERADO_MEM = False
+
+
+def asegurar_columna_imagen_productos(conn):
+    """Garantiza que la tabla productos tenga la columna imagen VARCHAR(255) y reactiva Fortinet 40F."""
+    global _FORTINET_RECUPERADO_MEM
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            ALTER TABLE productos
+            ADD COLUMN IF NOT EXISTS imagen VARCHAR(255) DEFAULT 'default_producto.png';
+        """)
+        if not _FORTINET_RECUPERADO_MEM:
+            cur.execute("""
+                UPDATE productos
+                SET activo = TRUE, modified_by = 'admin'
+                WHERE nombre ILIKE %s AND activo = FALSE;
+            """, ('%Firewall Fortinet FortiGate 40F%',))
+            _FORTINET_RECUPERADO_MEM = True
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+
+
+# Reactivar de inmediato 'Firewall Fortinet FortiGate 40F' al iniciar el módulo
+_conn_init = obtener_conexion()
+if _conn_init:
+    try:
+        asegurar_columna_imagen_productos(_conn_init)
+    finally:
+        _conn_init.close()
+
+
+def guardar_imagen_producto(archivo_storage):
+    """
+    Valida y almacena la imagen subida para un producto en static/uploads/productos/.
+    Retorna (nombre_archivo, mensaje_error).
+    Si no se adjuntó archivo, retorna (None, None).
+    """
+    if not archivo_storage or not getattr(archivo_storage, 'filename', ''):
+        return None, None
+
+    nombre_original = secure_filename(archivo_storage.filename.strip())
+    if not nombre_original:
+        return None, 'El nombre del archivo de imagen no es válido.'
+
+    _, ext = os.path.splitext(nombre_original)
+    ext = ext.lower()
+    if ext not in EXTENSIONES_IMAGEN_PERMITIDAS:
+        return None, 'Formato de imagen no permitido. Solo se aceptan archivos .png, .jpg, .jpeg o .webp.'
+
+    nombre_unico = secure_filename(f"prod_{uuid.uuid4().hex}{ext}")
+    ruta_destino = os.path.join(app.config['UPLOAD_FOLDER_PRODUCTOS'], nombre_unico)
+    os.makedirs(app.config['UPLOAD_FOLDER_PRODUCTOS'], exist_ok=True)
+    archivo_storage.save(ruta_destino)
+    return nombre_unico, None
 
 csrf = CSRFProtect(app)
 
@@ -67,7 +152,7 @@ def load_user(user_id):
     try:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT u.id, u.usuario, u.password, u.rol, u.email, u.activo, c.nombre
+            SELECT u.*, c.nombre AS cliente_nombre
             FROM usuarios u
             LEFT JOIN clientes c ON c.usuario_id = u.id
             WHERE u.id = %s
@@ -83,7 +168,9 @@ def load_user(user_id):
             rol_db = extraer_columna(u, 'rol', 3, 'usuario')
             email_db = extraer_columna(u, 'email', 4)
             activo_db = extraer_columna(u, 'activo', 5, True)
-            nombre_db = extraer_columna(u, 'nombre', 6)
+            nombre_usr = extraer_columna(u, 'nombre', 6)
+            nombre_cli = extraer_columna(u, 'cliente_nombre', 7)
+            nombre_db = nombre_usr or nombre_cli or usuario_db
 
             # Si el usuario está inactivo (Soft-Delete), invalidar sesión
             if activo_db is False:
@@ -112,11 +199,28 @@ def roles_requeridos(*roles_permitidos):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            es_peticion_json = (
+                request.is_json
+                or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or 'application/json' in request.headers.get('Accept', '')
+            )
             if not current_user.is_authenticated:
+                if es_peticion_json:
+                    return jsonify({
+                        "status": "error",
+                        "mensaje": "Debe iniciar sesión para ejecutar esta operación.",
+                        "afectados": 0
+                    }), 401
                 flash('Debe iniciar sesión para acceder a esta sección.', 'warning')
                 return redirect(url_for('login'))
 
             if not current_user.tiene_rol(*roles_permitidos):
+                if es_peticion_json:
+                    return jsonify({
+                        "status": "error",
+                        "mensaje": "Acceso denegado: Se requiere rol de Administrador para ejecutar acciones en lote.",
+                        "afectados": 0
+                    }), 403
                 flash('Acceso denegado: No tiene permisos suficientes para realizar esta acción.', 'danger')
                 
                 # Evita bucles de redirección según el rol
@@ -128,6 +232,39 @@ def roles_requeridos(*roles_permitidos):
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+
+def extraer_ids_lote():
+    """
+    Extrae y sanitiza la lista de IDs enteros desde JSON (fetch/AJAX) o FormData.
+    Retorna (lista_ids_unicos, payload_dict).
+    """
+    payload = request.get_json(silent=True) or {}
+    raw_ids = []
+
+    if isinstance(payload, dict) and 'ids' in payload:
+        raw_ids = payload.get('ids') or []
+    else:
+        raw_ids = (
+            request.form.getlist('ids')
+            or request.form.getlist('ids[]')
+            or request.form.getlist('productos_seleccionados')
+        )
+        if len(raw_ids) == 1 and isinstance(raw_ids[0], str) and ',' in raw_ids[0]:
+            raw_ids = [x.strip() for x in raw_ids[0].split(',') if x.strip()]
+
+    ids_limpios = []
+    vistos = set()
+    for valor in raw_ids:
+        try:
+            id_int = int(str(valor).strip())
+            if id_int > 0 and id_int not in vistos:
+                vistos.add(id_int)
+                ids_limpios.append(id_int)
+        except (ValueError, TypeError):
+            continue
+
+    return ids_limpios, payload
 
 
 SISTEMA_INFO = {
@@ -240,10 +377,11 @@ def registro():
                         return render_template('registro.html', form=form, sistema=SISTEMA_INFO)
 
                 # 3. Insertar en tabla 'usuarios' con rol estándar 'usuario'
+                asegurar_columnas_perfil_usuarios(conn)
                 cursor.execute(
-                    '''INSERT INTO usuarios (usuario, email, password, rol, activo) 
-                       VALUES (%s, %s, %s, %s, TRUE) RETURNING id;''',
-                    (nombre_usuario, email_usuario, hash_password, 'usuario')
+                    '''INSERT INTO usuarios (usuario, nombre, cedula, email, telefono, password, rol, activo) 
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE) RETURNING id;''',
+                    (nombre_usuario, nombre_completo, ruc_cliente, email_usuario, telefono_cliente, hash_password, 'usuario')
                 )
                 res_id = cursor.fetchone()
                 nuevo_id = res_id['id'] if isinstance(res_id, dict) else res_id[0]
@@ -600,25 +738,65 @@ def dashboard():
     )
 
 # MÓDULO 1: PRODUCTOS
-# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
+# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro por estado activo/inactivo/todos)
 @app.route('/productos')
 @login_required
 def productos():
     conn = obtener_conexion()
     productos_db = []
-    page = request.args.get('page', 1, type=int)
+    page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
+    estado_param = request.args.get('estado', 'activos', type=str).strip().lower()
+
+    # Solo el administrador puede alternar entre 'activos', 'inactivos' y 'todos'
+    if getattr(current_user, 'rol', 'usuario') == 'admin':
+        estado_filtro = estado_param if estado_param in ('activos', 'inactivos', 'todos') else 'activos'
+    else:
+        estado_filtro = 'activos'
+
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
-    total_pages = 1
+    conteos_estado = {'activos': 0, 'inactivos': 0, 'todos': 0}
 
     if conn:
         try:
+            asegurar_columna_imagen_productos(conn)
             cursor = conn.cursor()
-            
-            # Construcción dinámica de filtros
-            where_sql = "WHERE p.activo = TRUE"
+
+            # Recuperación puntual solicitada: asegurar que 'Firewall Fortinet FortiGate 40F' con stock reintegrado esté activo
+            if not session.get('_fortinet_40f_reactivado'):
+                cursor.execute('''
+                    UPDATE productos
+                    SET activo = TRUE, modified_by = %s
+                    WHERE nombre ILIKE %s AND activo = FALSE AND stock > 0;
+                ''', (getattr(current_user, 'usuario', 'admin'), '%Firewall Fortinet FortiGate 40F%'))
+                if cursor.rowcount > 0:
+                    conn.commit()
+                session['_fortinet_40f_reactivado'] = True
+
+            # Conteos rápidos por estado para las pestañas del Administrador
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) FILTER (WHERE activo = TRUE) AS activos,
+                    COUNT(*) FILTER (WHERE activo = FALSE) AS inactivos,
+                    COUNT(*) AS todos
+                FROM productos;
+            ''')
+            row_est = cursor.fetchone()
+            if row_est:
+                conteos_estado['activos'] = int(extraer_columna(row_est, 'activos', 0, 0) or 0)
+                conteos_estado['inactivos'] = int(extraer_columna(row_est, 'inactivos', 1, 0) or 0)
+                conteos_estado['todos'] = int(extraer_columna(row_est, 'todos', 2, 0) or 0)
+
+            # Construcción dinámica de filtros según estado
+            if estado_filtro == 'inactivos':
+                where_sql = "WHERE p.activo = FALSE"
+            elif estado_filtro == 'todos':
+                where_sql = "WHERE 1=1"
+            else:
+                where_sql = "WHERE p.activo = TRUE"
+
             params = []
             
             if q:
@@ -630,7 +808,7 @@ def productos():
                 param_busqueda = f"%{q}%"
                 params.extend([param_busqueda, param_busqueda, param_busqueda])
 
-            # Conteo total para paginación (soporta tuplas y diccionarios)
+            # a) Conteo total filtrado para paginación
             cursor.execute(f'''
                 SELECT COUNT(*) AS total
                 FROM productos p
@@ -638,16 +816,15 @@ def productos():
                 {where_sql};
             ''', tuple(params))
             row_count = cursor.fetchone()
-            if row_count:
-                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
-            else:
-                total_items = 0
-            
-            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+            total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            # Consulta paginada con LIMIT y OFFSET
+            # b) Consulta paginada con LIMIT y OFFSET (incluye imagen y estado activo)
             query_datos = f'''
-                SELECT p.id, p.nombre, p.descripcion, COALESCE(c.nombre, 'Sin categoría') AS categoria, p.precio, p.stock
+                SELECT p.id, p.nombre, p.descripcion,
+                       COALESCE(c.nombre, 'Sin categoría') AS categoria,
+                       p.precio, p.stock,
+                       COALESCE(NULLIF(TRIM(p.imagen), ''), 'default_producto.png') AS imagen,
+                       p.activo
                 FROM productos p
                 LEFT JOIN categorias c ON p.id_categoria = c.id
                 {where_sql}
@@ -665,19 +842,30 @@ def productos():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
+    paginador = Paginacion(
+        items=productos_db,
+        total_registros=total_items,
+        pagina_actual=page,
+        por_pagina=per_page
+    )
+
     return render_template(
         'productos.html', 
-        productos=productos_db, 
+        productos=paginador.items,
+        paginador=paginador,
         sistema=SISTEMA_INFO,
-        page=page,
-        total_pages=total_pages,
-        total_items=total_items,
-        q=q
+        page=paginador.pagina_actual,
+        total_pages=paginador.total_paginas,
+        total_items=paginador.total_registros,
+        q=q,
+        estado_actual=estado_filtro,
+        conteos_estado=conteos_estado
     )
 
 
-# 2. AGREGAR (INSERT INTO con descripcion, created_by y commit)
+# 2. AGREGAR (INSERT INTO con descripcion, imagen, created_by y commit)
 @app.route('/productos/formulario', methods=['GET', 'POST'])
+@app.route('/productos/crear', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
 def formulario_producto():
@@ -691,6 +879,7 @@ def formulario_producto():
     categorias = []
     marcas = []
     try:
+        asegurar_columna_imagen_productos(conn)
         cursor = conn.cursor()
         cursor.execute('SELECT id, nombre FROM categorias ORDER BY nombre ASC;')
         categorias = cursor.fetchall()
@@ -721,14 +910,30 @@ def formulario_producto():
         if hasattr(form, 'marca') and form.marca.data and str(form.marca.data).isdigit():
             id_marca = int(form.marca.data)
 
+        # Recepción y validación de imagen desde request.files
+        archivo_imagen = request.files.get('imagen')
+        nombre_imagen, error_img = guardar_imagen_producto(archivo_imagen)
+        if error_img:
+            flash(error_img, 'warning')
+            return render_template(
+                'formulario_producto.html',
+                form=form,
+                sistema=SISTEMA_INFO,
+                titulo="Nuevo Producto",
+                imagen_actual='default_producto.png'
+            )
+
+        imagen_final = nombre_imagen or 'default_producto.png'
+
         conn = obtener_conexion()
         if conn:
             try:
+                asegurar_columna_imagen_productos(conn)
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca, descripcion, created_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s);
-                ''', (nombre, precio, stock, id_categoria, id_marca, descripcion, current_user.usuario))
+                    INSERT INTO productos (nombre, precio, stock, id_categoria, id_marca, descripcion, imagen, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                ''', (nombre, precio, stock, id_categoria, id_marca, descripcion, imagen_final, current_user.usuario))
                 conn.commit()
                 cursor.close()
                 flash('Producto registrado correctamente.', 'success')
@@ -739,10 +944,16 @@ def formulario_producto():
             finally:
                 conn.close()
 
-    return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Nuevo Producto")
+    return render_template(
+        'formulario_producto.html',
+        form=form,
+        sistema=SISTEMA_INFO,
+        titulo="Nuevo Producto",
+        imagen_actual='default_producto.png'
+    )
 
 
-# 3. MODIFICAR (UPDATE WHERE con descripcion, modified_by y commit)
+# 3. MODIFICAR (UPDATE WHERE con descripcion, imagen, modified_by y commit)
 @app.route('/productos/editar/<int:id>', methods=['GET', 'POST'])
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -756,8 +967,12 @@ def editar_producto(id):
     categorias = []
     marcas = []
     try:
+        asegurar_columna_imagen_productos(conn)
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM productos WHERE id = %s AND activo = TRUE;', (id,))
+        if getattr(current_user, 'rol', 'usuario') == 'admin':
+            cursor.execute('SELECT * FROM productos WHERE id = %s;', (id,))
+        else:
+            cursor.execute('SELECT * FROM productos WHERE id = %s AND activo = TRUE;', (id,))
         producto = cursor.fetchone()
 
         cursor.execute('SELECT id, nombre FROM categorias ORDER BY nombre ASC;')
@@ -774,6 +989,8 @@ def editar_producto(id):
     if not producto:
         flash('El producto solicitado no existe o ha sido dado de baja.', 'warning')
         return redirect(url_for('productos'))
+
+    imagen_actual = (producto.get('imagen') or '').strip() or 'default_producto.png'
 
     form = ProductoForm()
     if hasattr(form, 'categoria') and hasattr(form.categoria, 'choices'):
@@ -804,15 +1021,32 @@ def editar_producto(id):
         if hasattr(form, 'marca') and form.marca.data and str(form.marca.data).isdigit():
             id_marca = int(form.marca.data)
 
+        # Recepción y validación de nueva imagen (si se adjunta)
+        archivo_imagen = request.files.get('imagen')
+        nueva_imagen, error_img = guardar_imagen_producto(archivo_imagen)
+        if error_img:
+            flash(error_img, 'warning')
+            return render_template(
+                'formulario_producto.html',
+                form=form,
+                sistema=SISTEMA_INFO,
+                titulo="Editar Producto",
+                imagen_actual=imagen_actual
+            )
+
+        imagen_final = nueva_imagen if nueva_imagen else imagen_actual
+
         conn = obtener_conexion()
         if conn:
             try:
+                asegurar_columna_imagen_productos(conn)
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE productos 
-                    SET nombre = %s, precio = %s, stock = %s, id_categoria = %s, id_marca = %s, descripcion = %s, modified_by = %s
+                    SET nombre = %s, precio = %s, stock = %s, id_categoria = %s, id_marca = %s,
+                        descripcion = %s, imagen = %s, modified_by = %s
                     WHERE id = %s;
-                ''', (nombre, precio, stock, id_categoria, id_marca, descripcion, current_user.usuario, id))
+                ''', (nombre, precio, stock, id_categoria, id_marca, descripcion, imagen_final, current_user.usuario, id))
                 conn.commit()
                 cursor.close()
                 flash('Producto modificado exitosamente.', 'success')
@@ -823,10 +1057,16 @@ def editar_producto(id):
             finally:
                 conn.close()
 
-    return render_template('formulario_producto.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Producto")
+    return render_template(
+        'formulario_producto.html',
+        form=form,
+        sistema=SISTEMA_INFO,
+        titulo="Editar Producto",
+        imagen_actual=imagen_actual
+    )
 
 
-# 4. ELIMINAR / DAR DE BAJA (CONTROL ESTRICTO: STOCK E INTEGRIDAD REFERENCIAL)
+# 4. ELIMINAR PRODUCTO INDIVIDUAL (BLOQUEO ESTRICTO SI TIENE HISTORIAL EN FACTURAS)
 @app.route('/productos/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -834,7 +1074,7 @@ def eliminar_producto(id):
     conn = obtener_conexion()
     if not conn:
         flash("Error de conexión a la base de datos.", "danger")
-        return redirect(url_for('productos'))
+        return redirect(request.referrer or url_for('productos'))
 
     try:
         cursor = conn.cursor()
@@ -846,65 +1086,193 @@ def eliminar_producto(id):
         if not prod:
             flash("El producto no existe o ya ha sido removido.", "warning")
             cursor.close()
-            return redirect(url_for('productos'))
+            return redirect(request.referrer or url_for('productos'))
 
         prod_id = extraer_columna(prod, 'id', 0)
         prod_nombre = extraer_columna(prod, 'nombre', 1)
-        prod_stock = int(extraer_columna(prod, 'stock', 2, 0))
-        prod_activo = extraer_columna(prod, 'activo', 3, True)
 
-        if not prod_activo:
-            flash(f"El producto '{prod_nombre}' ya se encuentra dado de baja.", "info")
+        # 2. REGLA ESTRICTA DE INTEGRIDAD CONTABLE: Consultar detalle_facturas antes de cualquier borrado
+        cursor.execute("SELECT 1 FROM detalle_facturas WHERE id_producto = %s LIMIT 1;", (prod_id,))
+        tiene_facturas = cursor.fetchone() is not None
+
+        if tiene_facturas:
+            conn.rollback()
             cursor.close()
-            return redirect(url_for('productos'))
-
-        # REGLA 1: BLOQUEO POR EXISTENCIA DE STOCK
-        if prod_stock > 0:
             flash(
-                f"Acción denegada: El producto '{prod_nombre}' registra {prod_stock} unidad(es) en bodega. "
-                f"Por normativa contable, no puede desactivar un artículo con existencias físicas disponibles.",
-                "warning"
-            )
-            cursor.close()
-            return redirect(url_for('productos'))
-
-        # REGLA 2: BLOQUEO POR FACTURAS PENDIENTES DE PAGO / LIQUIDACIÓN
-        cursor.execute('''
-            SELECT COUNT(DISTINCT f.id) AS total_pendientes
-            FROM detalle_facturas df
-            INNER JOIN facturas f ON df.id_factura = f.id
-            WHERE df.id_producto = %s AND f.activo = TRUE AND f.id_estado = 2;
-        ''', (prod_id,))
-        row_pendientes = cursor.fetchone()
-        facturas_pendientes = int(extraer_columna(row_pendientes, 'total_pendientes', 0, 0))
-
-        if facturas_pendientes > 0:
-            flash(
-                f"Acción denegada: El producto '{prod_nombre}' forma parte de {facturas_pendientes} factura(s) "
-                f"pendientes de pago. Resuelva o anule dichos comprobantes antes de retirar el producto.",
+                f"Operación denegada: Los siguientes productos registran comprobantes contables emitidos y no pueden ser eliminados: "
+                f"{prod_nombre}. Si no desea comercializarlos, use la opción 'Archivar / Desactivar'.",
                 "danger"
             )
-            cursor.close()
-            return redirect(url_for('productos'))
+            return redirect(request.referrer or url_for('productos'))
 
-        # 3. Soft Delete seguro (solo cuando stock = 0 y no compromete operaciones pendientes)
-        cursor.execute('''
-            UPDATE productos 
-            SET activo = FALSE, modified_by = %s 
-            WHERE id = %s;
-        ''', (current_user.usuario, prod_id))
+        # 3. Si NO tiene historial en facturas, ejecutar eliminación definitiva registrando el usuario en auditoría
+        cursor.execute("UPDATE productos SET modified_by = %s WHERE id = %s;", (current_user.usuario, prod_id))
+        cursor.execute("DELETE FROM productos WHERE id = %s;", (prod_id,))
 
         conn.commit()
         cursor.close()
-        flash(f"Producto '{prod_nombre}' dado de baja satisfactoriamente del catálogo activo.", "info")
+        flash(f"Producto '{prod_nombre}' eliminado definitivamente (sin historial de facturación).", "success")
 
     except Exception as e:
         conn.rollback()
-        flash(f"Error al procesar la baja del producto: {e}", "danger")
+        flash(f"Error al procesar la eliminación del producto: {e}", "danger")
     finally:
         conn.close()
 
-    return redirect(url_for('productos'))
+    return redirect(request.referrer or url_for('productos'))
+
+
+# 5. ELIMINACIÓN EN LOTE DE PRODUCTOS (BLOQUEO ESTRICTO DE PRODUCTOS CON FACTURAS)
+@app.route('/productos/eliminar-masivo', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def eliminar_productos_masivo():
+    ids_lote, _ = extraer_ids_lote()
+    if not ids_lote:
+        return jsonify({
+            "status": "error",
+            "mensaje": "No se seleccionó ningún producto para eliminar.",
+            "afectados": 0
+        }), 400
+
+    conn = obtener_conexion()
+    if not conn:
+        return jsonify({
+            "status": "error",
+            "mensaje": "Error de conexión a la base de datos.",
+            "afectados": 0
+        }), 500
+
+    eliminados_fisicos = 0
+    productos_bloqueados = []
+    ids_libres = []
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Clasificar cada producto seleccionado verificando 'detalle_facturas'
+        for id_prod in ids_lote:
+            cursor.execute("SELECT id, nombre FROM productos WHERE id = %s;", (id_prod,))
+            prod_row = cursor.fetchone()
+            if not prod_row:
+                continue
+
+            prod_id = extraer_columna(prod_row, 'id', 0)
+            prod_nombre = str(extraer_columna(prod_row, 'nombre', 1, f'ID #{prod_id}'))
+
+            cursor.execute("SELECT 1 FROM detalle_facturas WHERE id_producto = %s LIMIT 1;", (prod_id,))
+            en_facturas = cursor.fetchone() is not None
+
+            if en_facturas:
+                # BLOQUEAR eliminación (no eliminar ni ocultar automáticamente)
+                productos_bloqueados.append(prod_nombre)
+            else:
+                ids_libres.append((prod_id, prod_nombre))
+
+        # 2. Si TODOS los productos seleccionados tienen facturas -> abortar transacción y retornar error 400
+        if len(ids_libres) == 0 and len(productos_bloqueados) > 0:
+            conn.rollback()
+            cursor.close()
+            lista_nombres = ", ".join(productos_bloqueados)
+            mensaje_error = (
+                f"Operación denegada: Los siguientes productos registran comprobantes contables emitidos y no pueden ser eliminados: "
+                f"{lista_nombres}. Si no desea comercializarlos, use la opción 'Archivar / Desactivar'."
+            )
+            flash(mensaje_error, "danger")
+            return jsonify({
+                "status": "error",
+                "mensaje": mensaje_error,
+                "afectados": 0,
+                "bloqueados": productos_bloqueados
+            }), 400
+
+        # 3. Eliminar únicamente los productos libres de historial en facturas
+        for prod_id, _ in ids_libres:
+            cursor.execute("UPDATE productos SET modified_by = %s WHERE id = %s;", (current_user.usuario, prod_id))
+            cursor.execute("DELETE FROM productos WHERE id = %s;", (prod_id,))
+            if cursor.rowcount > 0:
+                eliminados_fisicos += 1
+
+        conn.commit()
+        cursor.close()
+
+        # 4. Construir reporte detallado según si hubo productos omitidos o no
+        if len(productos_bloqueados) > 0:
+            lista_nombres = ", ".join(productos_bloqueados)
+            mensaje = (
+                f"Se eliminaron {eliminados_fisicos} productos libres de historial. "
+                f"Se omitieron {len(productos_bloqueados)} productos por registrar facturas activas ({lista_nombres})."
+            )
+            flash(mensaje, "warning")
+        else:
+            mensaje = f"Se eliminaron {eliminados_fisicos} productos libres de historial."
+            flash(mensaje, "success")
+
+        return jsonify({
+            "status": "success",
+            "mensaje": mensaje,
+            "afectados": eliminados_fisicos,
+            "omitidos": len(productos_bloqueados),
+            "bloqueados": productos_bloqueados
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({
+            "status": "error",
+            "mensaje": f"Error al procesar la eliminación masiva de productos: {e}",
+            "afectados": 0
+        }), 500
+    finally:
+        conn.close()
+
+
+# 6. ACTIVACIÓN / DESACTIVACIÓN MANUAL DE PRODUCTO (ARCHIVAR / REACTIVAR CON AUDITORÍA)
+@app.route('/productos/cambiar-estado/<int:id>', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def cambiar_estado_producto(id):
+    conn = obtener_conexion()
+    if not conn:
+        flash("Error de conexión a la base de datos.", "danger")
+        return redirect(request.referrer or url_for('productos'))
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nombre, activo FROM productos WHERE id = %s;", (id,))
+        prod = cursor.fetchone()
+
+        if not prod:
+            cursor.close()
+            flash("El producto solicitado no existe.", "warning")
+            return redirect(request.referrer or url_for('productos'))
+
+        prod_id = extraer_columna(prod, 'id', 0)
+        prod_nombre = extraer_columna(prod, 'nombre', 1)
+        estado_actual = bool(extraer_columna(prod, 'activo', 2, True))
+        nuevo_estado = not estado_actual
+
+        # Actualización explícita que dispara trg_auditoria_productos (UPDATE / SOFT_DELETE con datos_previos y datos_nuevos)
+        cursor.execute('''
+            UPDATE productos
+            SET activo = %s, modified_by = %s
+            WHERE id = %s;
+        ''', (nuevo_estado, current_user.usuario, prod_id))
+
+        conn.commit()
+        cursor.close()
+
+        if nuevo_estado:
+            flash(f"Producto '{prod_nombre}' reactivado e incorporado nuevamente al catálogo comercial activo.", "success")
+        else:
+            flash(f"Producto '{prod_nombre}' archivado/desactivado correctamente. Su historial contable permanece intacto.", "info")
+
+    except Exception as e:
+        conn.rollback()
+        flash(f"Error al cambiar el estado del producto: {e}", "danger")
+    finally:
+        conn.close()
+
+    return redirect(request.referrer or url_for('productos'))
 
 # MÓDULO: CLIENTES
 
@@ -915,12 +1283,11 @@ def eliminar_producto(id):
 def clientes():
     conn = obtener_conexion()
     clientes_db = []
-    page = request.args.get('page', 1, type=int)
+    page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
-    total_pages = 1
 
     if conn:
         try:
@@ -940,7 +1307,7 @@ def clientes():
                 param_busqueda = f"%{q}%"
                 params.extend([param_busqueda, param_busqueda, param_busqueda, param_busqueda])
 
-            # Conteo total para paginación (soporta tuplas y diccionarios de forma segura)
+            # a) Conteo total filtrado para paginación
             cursor.execute(f'''
                 SELECT COUNT(*) AS total
                 FROM clientes c
@@ -948,14 +1315,9 @@ def clientes():
                 {where_sql};
             ''', tuple(params))
             row_count = cursor.fetchone()
-            if row_count:
-                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
-            else:
-                total_items = 0
-            
-            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+            total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            # Consulta paginada con LIMIT y OFFSET
+            # b) Consulta paginada con LIMIT y OFFSET
             query_datos = f'''
                 SELECT c.id, c.nombre, c.ruc, c.telefono, c.email,
                        COALESCE(ci.nombre, 'No asignada') AS ciudad
@@ -976,13 +1338,21 @@ def clientes():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
+    paginador = Paginacion(
+        items=clientes_db,
+        total_registros=total_items,
+        pagina_actual=page,
+        por_pagina=per_page
+    )
+
     return render_template(
         'clientes.html', 
-        clientes=clientes_db, 
+        clientes=paginador.items,
+        paginador=paginador,
         sistema=SISTEMA_INFO,
-        page=page,
-        total_pages=total_pages,
-        total_items=total_items,
+        page=paginador.pagina_actual,
+        total_pages=paginador.total_paginas,
+        total_items=paginador.total_registros,
         q=q
     )
 
@@ -1142,6 +1512,82 @@ def eliminar_cliente(id):
 
     return redirect(url_for('clientes'))
 
+
+# 5. ELIMINACIÓN EN LOTE DE CLIENTES (SOFT DELETE SI TIENE FACTURAS, DELETE FÍSICO SI NO TIENE MOVIMIENTOS)
+@app.route('/clientes/eliminar-masivo', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def eliminar_clientes_masivo():
+    ids_lote, _ = extraer_ids_lote()
+    if not ids_lote:
+        return jsonify({
+            "status": "error",
+            "mensaje": "No se seleccionó ningún cliente para eliminar.",
+            "afectados": 0
+        }), 400
+
+    conn = obtener_conexion()
+    if not conn:
+        return jsonify({
+            "status": "error",
+            "mensaje": "Error de conexión a la base de datos.",
+            "afectados": 0
+        }), 500
+
+    bajas_logicas = 0
+    eliminados_fisicos = 0
+    try:
+        cursor = conn.cursor()
+
+        for id_cli in ids_lote:
+            cursor.execute("SELECT id FROM clientes WHERE id = %s;", (id_cli,))
+            if not cursor.fetchone():
+                continue
+
+            # Verificar si el cliente posee facturas emitidas para preservar el historial fiscal
+            cursor.execute("SELECT 1 FROM facturas WHERE id_cliente = %s LIMIT 1;", (id_cli,))
+            tiene_facturas = cursor.fetchone() is not None
+
+            if tiene_facturas:
+                cursor.execute('''
+                    UPDATE clientes
+                    SET activo = FALSE, modified_by = %s
+                    WHERE id = %s AND activo = TRUE;
+                ''', (current_user.usuario, id_cli))
+                if cursor.rowcount > 0:
+                    bajas_logicas += 1
+            else:
+                cursor.execute("UPDATE clientes SET modified_by = %s WHERE id = %s;", (current_user.usuario, id_cli))
+                cursor.execute("DELETE FROM clientes WHERE id = %s;", (id_cli,))
+                if cursor.rowcount > 0:
+                    eliminados_fisicos += 1
+
+        conn.commit()
+        cursor.close()
+
+        afectados = bajas_logicas + eliminados_fisicos
+        mensaje = (
+            f"Operación en lote completada: {afectados} cliente(s) procesado(s) "
+            f"({bajas_logicas} baja(s) lógica(s) por historial fiscal, {eliminados_fisicos} eliminación(es) física(s))."
+        )
+        flash(mensaje, "info")
+        return jsonify({
+            "status": "success",
+            "mensaje": mensaje,
+            "afectados": afectados,
+            "bajas_logicas": bajas_logicas,
+            "eliminados_fisicos": eliminados_fisicos
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({
+            "status": "error",
+            "mensaje": f"Error al procesar la eliminación masiva de clientes: {e}",
+            "afectados": 0
+        }), 500
+    finally:
+        conn.close()
+
 # MÓDULO 3: PROVEEDORES
 
 # 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
@@ -1151,12 +1597,11 @@ def eliminar_cliente(id):
 def proveedores():
     conn = obtener_conexion()
     proveedores_db = []
-    page = request.args.get('page', 1, type=int)
+    page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
-    total_pages = 1
 
     if conn:
         try:
@@ -1177,7 +1622,7 @@ def proveedores():
                 param_busqueda = f"%{q}%"
                 params.extend([param_busqueda, param_busqueda, param_busqueda, param_busqueda, param_busqueda])
 
-            # Conteo total para paginación (soporta tuplas y diccionarios)
+            # a) Conteo total filtrado para paginación
             cursor.execute(f'''
                 SELECT COUNT(*) AS total
                 FROM proveedores p
@@ -1186,14 +1631,9 @@ def proveedores():
                 {where_sql};
             ''', tuple(params))
             row_count = cursor.fetchone()
-            if row_count:
-                total_items = row_count['total'] if isinstance(row_count, dict) else row_count[0]
-            else:
-                total_items = 0
+            total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
-
-            # Consulta paginada con LIMIT y OFFSET
+            # b) Consulta paginada con LIMIT y OFFSET
             query_datos = f'''
                 SELECT p.id, p.nombre, p.contacto, p.telefono, 
                        COALESCE(c.nombre, 'Sin categoría') AS categoria,
@@ -1216,13 +1656,21 @@ def proveedores():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
+    paginador = Paginacion(
+        items=proveedores_db,
+        total_registros=total_items,
+        pagina_actual=page,
+        por_pagina=per_page
+    )
+
     return render_template(
         'proveedores.html', 
-        proveedores=proveedores_db, 
+        proveedores=paginador.items,
+        paginador=paginador,
         sistema=SISTEMA_INFO,
-        page=page,
-        total_pages=total_pages,
-        total_items=total_items,
+        page=paginador.pagina_actual,
+        total_pages=paginador.total_paginas,
+        total_items=paginador.total_registros,
         q=q
     )
 
@@ -1399,6 +1847,109 @@ def eliminar_proveedor(id):
             conn.close()
 
     return redirect(url_for('proveedores'))
+
+
+# 5. ELIMINACIÓN EN LOTE DE PROVEEDORES (SOFT DELETE SI TIENE PRODUCTOS/ÓRDENES ASOCIADOS, DELETE FÍSICO SI NO)
+@app.route('/proveedores/eliminar-masivo', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def eliminar_proveedores_masivo():
+    ids_lote, _ = extraer_ids_lote()
+    if not ids_lote:
+        return jsonify({
+            "status": "error",
+            "mensaje": "No se seleccionó ningún proveedor para eliminar.",
+            "afectados": 0
+        }), 400
+
+    conn = obtener_conexion()
+    if not conn:
+        return jsonify({
+            "status": "error",
+            "mensaje": "Error de conexión a la base de datos.",
+            "afectados": 0
+        }), 500
+
+    bajas_logicas = 0
+    eliminados_fisicos = 0
+    try:
+        cursor = conn.cursor()
+
+        # Verificar dinámicamente si la tabla productos tiene columna id_proveedor
+        cursor.execute('''
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'productos';
+        ''')
+        cols_productos = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
+
+        for id_prov in ids_lote:
+            cursor.execute("SELECT id, id_categoria FROM proveedores WHERE id = %s;", (id_prov,))
+            prov_row = cursor.fetchone()
+            if not prov_row:
+                continue
+
+            id_cat_prov = extraer_columna(prov_row, 'id_categoria', 1)
+            tiene_asociados = False
+
+            if 'id_proveedor' in cols_productos:
+                cursor.execute("SELECT 1 FROM productos WHERE id_proveedor = %s LIMIT 1;", (id_prov,))
+                tiene_asociados = cursor.fetchone() is not None
+            elif id_cat_prov is not None:
+                cursor.execute("SELECT 1 FROM productos WHERE id_categoria = %s AND activo = TRUE LIMIT 1;", (id_cat_prov,))
+                tiene_asociados = cursor.fetchone() is not None
+
+            if tiene_asociados:
+                cursor.execute('''
+                    UPDATE proveedores
+                    SET activo = FALSE, modified_by = %s
+                    WHERE id = %s AND activo = TRUE;
+                ''', (current_user.usuario, id_prov))
+                if cursor.rowcount > 0:
+                    bajas_logicas += 1
+            else:
+                cursor.execute("SAVEPOINT sp_del_proveedor;")
+                try:
+                    cursor.execute("UPDATE proveedores SET modified_by = %s WHERE id = %s;", (current_user.usuario, id_prov))
+                    cursor.execute("DELETE FROM proveedores WHERE id = %s;", (id_prov,))
+                    if cursor.rowcount > 0:
+                        eliminados_fisicos += 1
+                    cursor.execute("RELEASE SAVEPOINT sp_del_proveedor;")
+                except Exception:
+                    cursor.execute("ROLLBACK TO SAVEPOINT sp_del_proveedor;")
+                    cursor.execute('''
+                        UPDATE proveedores
+                        SET activo = FALSE, modified_by = %s
+                        WHERE id = %s AND activo = TRUE;
+                    ''', (current_user.usuario, id_prov))
+                    if cursor.rowcount > 0:
+                        bajas_logicas += 1
+
+        conn.commit()
+        cursor.close()
+
+        afectados = bajas_logicas + eliminados_fisicos
+        mensaje = (
+            f"Operación en lote completada: {afectados} proveedor(es) procesado(s) "
+            f"({bajas_logicas} baja(s) lógica(s) por suministros asociados, {eliminados_fisicos} eliminación(es) física(s))."
+        )
+        flash(mensaje, "info")
+        return jsonify({
+            "status": "success",
+            "mensaje": mensaje,
+            "afectados": afectados,
+            "bajas_logicas": bajas_logicas,
+            "eliminados_fisicos": eliminados_fisicos
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({
+            "status": "error",
+            "mensaje": f"Error al procesar la eliminación masiva de proveedores: {e}",
+            "afectados": 0
+        }), 500
+    finally:
+        conn.close()
 # ==============================================================================
 # MÓDULO 4: FACTURACIÓN & CARRITO DE COMPRAS
 # ==============================================================================
@@ -1410,12 +1961,11 @@ def eliminar_proveedor(id):
 def facturacion():
     conn = obtener_conexion()
     facturas_db = []
-    page = request.args.get('page', 1, type=int)
+    page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
-    total_pages = 1
 
     if conn:
         try:
@@ -1439,7 +1989,7 @@ def facturacion():
                 param_busqueda = f"%{q}%"
                 params.extend([param_busqueda, param_busqueda, param_busqueda, param_busqueda])
 
-            # Conteo total para paginación
+            # a) Conteo total filtrado para paginación
             cursor.execute(f'''
                 SELECT COUNT(*) AS total
                 FROM facturas f
@@ -1447,10 +1997,9 @@ def facturacion():
                 {where_sql};
             ''', tuple(params))
             row_count = cursor.fetchone()
-            total_items = extraer_columna(row_count, 'total', 0, 0)
-            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+            total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            # Consulta paginada con consolidación atómica de productos
+            # b) Consulta paginada con consolidación atómica de productos
             query_datos = f'''
                 SELECT f.id, 
                        f.numero, 
@@ -1483,13 +2032,21 @@ def facturacion():
     else:
         flash("Error de conexión a la base de datos.", "danger")
 
+    paginador = Paginacion(
+        items=facturas_db,
+        total_registros=total_items,
+        pagina_actual=page,
+        por_pagina=per_page
+    )
+
     return render_template(
         'facturacion.html', 
-        facturas=facturas_db, 
+        facturas=paginador.items,
+        paginador=paginador,
         sistema=SISTEMA_INFO,
-        page=page,
-        total_pages=total_pages,
-        total_items=total_items,
+        page=paginador.pagina_actual,
+        total_pages=paginador.total_paginas,
+        total_items=paginador.total_registros,
         q=q
     )
 
@@ -1887,51 +2444,282 @@ def eliminar_factura(numero):
     return redirect(url_for('facturacion'))
 
 
-# 5. HISTORIAL DE COMPRAS DEL CLIENTE (CON DETALLE CONSOLIDADO DE PRODUCTOS)
+# 4.1 ANULACIÓN EN LOTE DE FACTURAS (REGLA TRIBUTARIA SRI: SIN DELETE FÍSICO, REINTEGRO DE STOCK Y AUDITORÍA)
+@app.route('/facturacion/anular-masivo', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def anular_facturas_masivo():
+    ids_lote, payload = extraer_ids_lote()
+    if not ids_lote:
+        return jsonify({
+            "status": "error",
+            "mensaje": "No se seleccionó ningún comprobante para anular.",
+            "afectados": 0
+        }), 400
+
+    motivo = (
+        (payload.get('motivo') if isinstance(payload, dict) else None)
+        or request.form.get('motivo')
+        or 'Anulación en lote autorizada por Administración (Normativa Tributaria SRI)'
+    ).strip()
+
+    conn = obtener_conexion()
+    if not conn:
+        return jsonify({
+            "status": "error",
+            "mensaje": "Error de conexión a la base de datos.",
+            "afectados": 0
+        }), 500
+
+    anuladas_count = 0
+    try:
+        cursor = conn.cursor()
+
+        # Detectar si la tabla facturas tiene columna textual 'estado' además de 'id_estado'
+        cursor.execute('''
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'facturas';
+        ''')
+        cols_facturas = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
+
+        for id_fac in ids_lote:
+            cursor.execute(
+                "SELECT id, numero, id_estado FROM facturas WHERE id = %s AND activo = TRUE;",
+                (id_fac,)
+            )
+            fac_row = cursor.fetchone()
+            if not fac_row:
+                continue
+
+            fac_id = extraer_columna(fac_row, 'id', 0)
+            estado_previo = int(extraer_columna(fac_row, 'id_estado', 2, 1))
+
+            # Si ya está anulada (id_estado == 3), evitar doble reintegro de stock
+            if estado_previo != 3:
+                cursor.execute(
+                    "SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;",
+                    (fac_id,)
+                )
+                detalles = cursor.fetchall()
+                for d in detalles:
+                    pid = extraer_columna(d, 'id_producto', 0)
+                    cant = extraer_columna(d, 'cantidad', 1)
+                    cursor.execute(
+                        "UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;",
+                        (cant, current_user.usuario, pid)
+                    )
+
+            # Actualizar estado a ANULADA (id_estado = 3) sin DELETE físico (cumplimiento SRI)
+            if 'estado' in cols_facturas:
+                cursor.execute('''
+                    UPDATE facturas
+                    SET id_estado = 3, estado = 'ANULADA', modified_by = %s
+                    WHERE id = %s;
+                ''', (current_user.usuario, fac_id))
+            else:
+                cursor.execute('''
+                    UPDATE facturas
+                    SET id_estado = 3, modified_by = %s
+                    WHERE id = %s;
+                ''', (current_user.usuario, fac_id))
+
+            if cursor.rowcount > 0:
+                anuladas_count += 1
+                # Enriquecer el registro de auditoría recién generado con el estado ANULADA y el motivo tributario
+                cursor.execute('''
+                    UPDATE auditoria
+                    SET datos_nuevos = COALESCE(datos_nuevos, '{}'::jsonb) || jsonb_build_object(
+                        'estado_sri', 'ANULADA',
+                        'motivo_anulacion', %s
+                    )
+                    WHERE id_auditoria = (
+                        SELECT id_auditoria
+                        FROM auditoria
+                        WHERE tabla_afectada = 'facturas' AND id_registro = %s
+                        ORDER BY fecha_hora DESC, id_auditoria DESC
+                        LIMIT 1
+                    );
+                ''', (motivo, fac_id))
+
+        conn.commit()
+        cursor.close()
+
+        mensaje = (
+            f"Se anularon satisfactoriamente {anuladas_count} comprobante(s) bajo normativa SRI "
+            f"y se reintegró el stock correspondiente. Motivo registrado en auditoría: {motivo}"
+        )
+        flash(mensaje, "info")
+        return jsonify({
+            "status": "success",
+            "mensaje": mensaje,
+            "afectados": anuladas_count
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({
+            "status": "error",
+            "mensaje": f"Error al anular comprobantes en lote: {e}",
+            "afectados": 0
+        }), 500
+    finally:
+        conn.close()
+
+
+# 5. HISTORIAL DE COMPRAS DEL CLIENTE (CON DETALLE CONSOLIDADO DE PRODUCTOS Y PAGINACIÓN)
 @app.route('/mis-facturas')
 @login_required
 def mis_facturas():
     conn = obtener_conexion()
-    facturas_usuario = []
+    facturas = []
+    pagina = max(1, request.args.get('page', 1, type=int))
+    q = request.args.get('q', '', type=str).strip()
+    por_pagina = 10
+    offset = (pagina - 1) * por_pagina
+    total = 0
+
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT f.id, 
-                       f.numero, 
-                       f.fecha, 
-                       f.monto, 
-                       f.id_estado, 
-                       COALESCE(e.nombre, 'Pendiente') AS estado,
-                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
-                       COALESCE(SUM(df.cantidad), 0) AS total_articulos,
-                       COALESCE(STRING_AGG(CONCAT(df.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
-                FROM facturas f
-                INNER JOIN clientes c ON f.id_cliente = c.id
-                LEFT JOIN estados_factura e ON f.id_estado = e.id
-                LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-                LEFT JOIN detalle_facturas df ON df.id_factura = f.id
-                LEFT JOIN productos p ON df.id_producto = p.id
-                WHERE c.usuario_id = %s AND f.activo = TRUE
-                GROUP BY f.id, f.numero, f.fecha, f.monto, f.id_estado, e.nombre, mp.nombre
-                ORDER BY f.id DESC;
-            ''', (int(current_user.id),))
-            
-            filas = cursor.fetchall()
-            cursor.close()
 
-            for fila in filas:
-                facturas_usuario.append({
-                    'id': extraer_columna(fila, 'id', 0),
-                    'numero': extraer_columna(fila, 'numero', 1),
-                    'fecha': extraer_columna(fila, 'fecha', 2),
-                    'monto': float(extraer_columna(fila, 'monto', 3, 0.0)),
-                    'id_estado': extraer_columna(fila, 'id_estado', 4),
-                    'estado': extraer_columna(fila, 'estado', 5),
-                    'metodo_pago': extraer_columna(fila, 'metodo_pago', 6),
-                    'total_articulos': int(extraer_columna(fila, 'total_articulos', 7, 0)),
-                    'resumen_items': str(extraer_columna(fila, 'resumen_items', 8, 'Sin ítems'))
-                })
+            # Detectar si la tabla facturas tiene columna directa id_usuario o si relaciona vía clientes.usuario_id
+            cursor.execute('''
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' AND table_name = 'facturas';
+            ''')
+            cols_facturas = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
+
+            user_id_int = int(current_user.id)
+
+            if 'id_usuario' in cols_facturas and 'numero_factura' in cols_facturas:
+                # Esquema plano directo en facturas
+                where_sql = "WHERE id_usuario = %s"
+                params = [user_id_int]
+
+                if q:
+                    where_sql += " AND numero_factura ILIKE %s"
+                    params.append(f"%{q}%")
+
+                cursor.execute(f"SELECT COUNT(*) AS total FROM facturas {where_sql};", tuple(params))
+                row_count = cursor.fetchone()
+                total = int(extraer_columna(row_count, 'total', 0, 0))
+
+                cursor.execute(f'''
+                    SELECT id_factura,
+                           numero_factura,
+                           fecha,
+                           total,
+                           estado,
+                           metodo_pago
+                    FROM facturas
+                    {where_sql}
+                    ORDER BY fecha DESC, id_factura DESC
+                    LIMIT %s OFFSET %s;
+                ''', tuple(params + [por_pagina, offset]))
+                filas = cursor.fetchall()
+                cursor.close()
+
+                for fila in filas:
+                    id_val = extraer_columna(fila, 'id_factura', 0)
+                    num_val = extraer_columna(fila, 'numero_factura', 1)
+                    fecha_val = extraer_columna(fila, 'fecha', 2)
+                    tot_val = float(extraer_columna(fila, 'total', 3, 0.0))
+                    est_val = extraer_columna(fila, 'estado', 4, 'Pendiente')
+                    met_val = extraer_columna(fila, 'metodo_pago', 5, 'Efectivo')
+
+                    facturas.append({
+                        'id_factura': id_val,
+                        'id': id_val,
+                        'numero_factura': num_val,
+                        'numero': num_val,
+                        'fecha': fecha_val,
+                        'total': tot_val,
+                        'monto': tot_val,
+                        'estado': est_val,
+                        'metodo_pago': met_val,
+                        'total_articulos': 0,
+                        'resumen_items': ''
+                    })
+            else:
+                # Esquema relacional normalizado (facturas -> clientes.usuario_id) con alias compatibles
+                where_sql = "WHERE c.usuario_id = %s AND f.activo = TRUE"
+                params = [user_id_int]
+
+                if q:
+                    where_sql += """ AND (
+                        f.numero ILIKE %s OR
+                        EXISTS (
+                            SELECT 1 FROM detalle_facturas df_s
+                            INNER JOIN productos p_s ON df_s.id_producto = p_s.id
+                            WHERE df_s.id_factura = f.id AND p_s.nombre ILIKE %s
+                        )
+                    )"""
+                    param_busqueda = f"%{q}%"
+                    params.extend([param_busqueda, param_busqueda])
+
+                # a) Conteo total filtrado
+                cursor.execute(f'''
+                    SELECT COUNT(*) AS total
+                    FROM facturas f
+                    INNER JOIN clientes c ON f.id_cliente = c.id
+                    {where_sql};
+                ''', tuple(params))
+                row_count = cursor.fetchone()
+                total = int(extraer_columna(row_count, 'total', 0, 0))
+
+                # b) Consulta principal recortada con LIMIT y OFFSET ordenada por fecha DESC, id_factura DESC
+                query_datos = f'''
+                    SELECT f.id AS id_factura, 
+                           f.numero AS numero_factura, 
+                           f.fecha, 
+                           f.monto AS total, 
+                           f.id_estado, 
+                           COALESCE(e.nombre, 'Pendiente') AS estado,
+                           COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
+                           COALESCE(SUM(df.cantidad), 0) AS total_articulos,
+                           COALESCE(STRING_AGG(CONCAT(df.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
+                    FROM facturas f
+                    INNER JOIN clientes c ON f.id_cliente = c.id
+                    LEFT JOIN estados_factura e ON f.id_estado = e.id
+                    LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
+                    LEFT JOIN detalle_facturas df ON df.id_factura = f.id
+                    LEFT JOIN productos p ON df.id_producto = p.id
+                    {where_sql}
+                    GROUP BY f.id, f.numero, f.fecha, f.monto, f.id_estado, e.nombre, mp.nombre
+                    ORDER BY f.fecha DESC, f.id DESC
+                    LIMIT %s OFFSET %s;
+                '''
+                params_datos = list(params) + [por_pagina, offset]
+                cursor.execute(query_datos, tuple(params_datos))
+                filas = cursor.fetchall()
+                cursor.close()
+
+                for fila in filas:
+                    id_val = extraer_columna(fila, 'id_factura', 0)
+                    num_val = extraer_columna(fila, 'numero_factura', 1)
+                    fecha_val = extraer_columna(fila, 'fecha', 2)
+                    tot_val = float(extraer_columna(fila, 'total', 3, 0.0))
+                    id_est_val = extraer_columna(fila, 'id_estado', 4)
+                    est_val = extraer_columna(fila, 'estado', 5, 'Pendiente')
+                    met_val = extraer_columna(fila, 'metodo_pago', 6, 'Efectivo')
+                    art_val = int(extraer_columna(fila, 'total_articulos', 7, 0))
+                    res_val = str(extraer_columna(fila, 'resumen_items', 8, 'Sin ítems'))
+
+                    facturas.append({
+                        'id_factura': id_val,
+                        'id': id_val,
+                        'numero_factura': num_val,
+                        'numero': num_val,
+                        'fecha': fecha_val,
+                        'total': tot_val,
+                        'monto': tot_val,
+                        'id_estado': id_est_val,
+                        'estado': est_val,
+                        'metodo_pago': met_val,
+                        'total_articulos': art_val,
+                        'resumen_items': res_val
+                    })
 
         except Exception as e:
             flash(f"Error al obtener tus compras: {e}", "danger")
@@ -1940,48 +2728,78 @@ def mis_facturas():
     else:
         flash("Error de conexión con la base de datos.", "danger")
 
-    return render_template('mis_facturas.html', facturas=facturas_usuario, sistema=SISTEMA_INFO)
+    paginador = Paginacion(
+        items=facturas,
+        total_registros=total,
+        pagina_actual=pagina,
+        por_pagina=por_pagina
+    )
 
-# 6. VER COMPROBANTE / IMPRIMIR FACTURA (SOLO FACTURAS PAGADAS)
+    return render_template(
+        'mis_facturas.html',
+        paginador=paginador,
+        facturas=paginador.items,
+        sistema=SISTEMA_INFO,
+        page=paginador.pagina_actual,
+        total_pages=paginador.total_paginas,
+        total_items=paginador.total_registros,
+        q=q
+    )
+
+# 6. DESCARGAR COMPROBANTE ELECTRÓNICO RIDE EN PDF (NORMATIVA SRI ECUADOR)
 @app.route('/facturacion/descargar/<int:id_factura>')
+@app.route('/facturacion/descargar/<int:id>')
 @login_required
-def descargar_factura(id_factura):
+def descargar_factura(id_factura=None, id=None):
+    target_id = id_factura if id_factura is not None else id
     conn = obtener_conexion()
     if not conn:
         flash("Error de conexión a la base de datos.", "danger")
         return redirect(url_for('dashboard'))
 
+    asegurar_columnas_perfil_usuarios(conn)
+
     cursor = None
     try:
         cursor = conn.cursor()
 
-        # Validación con respecto al rol y obtención del estado real de la factura
+        # Validación de permisos por rol (un cliente solo descarga sus propias facturas; admin/operador cualquiera)
         if current_user.rol == 'usuario':
             cursor.execute('''
                 SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado, 
                        e.nombre AS estado,
-                       COALESCE(c.nombre, 'Consumidor Final') AS cliente, 
-                       c.email, c.ruc, c.telefono,
-                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
+                       COALESCE(c.nombre, u.nombre, 'Consumidor Final') AS cliente, 
+                       COALESCE(c.email, u.email) AS email,
+                       COALESCE(c.ruc, u.cedula, '9999999999999') AS ruc,
+                       COALESCE(c.telefono, u.telefono, 'S/N') AS telefono,
+                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
+                       COALESCE(u.direccion, ci.nombre, 'Machala - Ecuador') AS direccion
                 FROM facturas f
                 LEFT JOIN clientes c ON f.id_cliente = c.id
+                LEFT JOIN usuarios u ON c.usuario_id = u.id
+                LEFT JOIN ciudades ci ON c.id_ciudad = ci.id
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
                 WHERE f.id = %s AND c.usuario_id = %s AND f.activo = TRUE;
-            ''', (id_factura, int(current_user.id)))
+            ''', (target_id, int(current_user.id)))
         else:
             cursor.execute('''
                 SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado, 
                        e.nombre AS estado,
-                       COALESCE(c.nombre, 'Consumidor Final') AS cliente, 
-                       c.email, c.ruc, c.telefono,
-                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago
+                       COALESCE(c.nombre, u.nombre, 'Consumidor Final') AS cliente, 
+                       COALESCE(c.email, u.email) AS email,
+                       COALESCE(c.ruc, u.cedula, '9999999999999') AS ruc,
+                       COALESCE(c.telefono, u.telefono, 'S/N') AS telefono,
+                       COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
+                       COALESCE(u.direccion, ci.nombre, 'Machala - Ecuador') AS direccion
                 FROM facturas f
                 LEFT JOIN clientes c ON f.id_cliente = c.id
+                LEFT JOIN usuarios u ON c.usuario_id = u.id
+                LEFT JOIN ciudades ci ON c.id_ciudad = ci.id
                 LEFT JOIN estados_factura e ON f.id_estado = e.id
                 LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
                 WHERE f.id = %s AND f.activo = TRUE;
-            ''', (id_factura,))
+            ''', (target_id,))
 
         fila_fac = cursor.fetchone()
 
@@ -2013,11 +2831,13 @@ def descargar_factura(id_factura):
             'email': extraer_columna(fila_fac, 'email', 7),
             'ruc': extraer_columna(fila_fac, 'ruc', 8),
             'telefono': extraer_columna(fila_fac, 'telefono', 9),
-            'metodo_pago': extraer_columna(fila_fac, 'metodo_pago', 10)
+            'metodo_pago': extraer_columna(fila_fac, 'metodo_pago', 10),
+            'direccion': extraer_columna(fila_fac, 'direccion', 11, 'Machala - Ecuador')
         }
 
         cursor.execute('''
-            SELECT COALESCE(p.nombre, 'Producto General') AS nombre, 
+            SELECT df.id_producto,
+                   COALESCE(p.nombre, 'Producto General') AS nombre, 
                    df.cantidad, 
                    df.precio_unitario, 
                    ROUND(df.cantidad * df.precio_unitario, 2) AS subtotal
@@ -2030,23 +2850,36 @@ def descargar_factura(id_factura):
 
         detalles_lista = [
             {
-                'nombre': extraer_columna(d, 'nombre', 0),
-                'cantidad': int(extraer_columna(d, 'cantidad', 1, 0)),
-                'precio': float(extraer_columna(d, 'precio_unitario', 2, 0.0)),
-                'subtotal': float(extraer_columna(d, 'subtotal', 3, 0.0))
+                'id_producto': extraer_columna(d, 'id_producto', 0),
+                'nombre': extraer_columna(d, 'nombre', 1),
+                'cantidad': int(extraer_columna(d, 'cantidad', 2, 0)),
+                'precio': float(extraer_columna(d, 'precio_unitario', 3, 0.0)),
+                'descuento': 0.0,
+                'subtotal': float(extraer_columna(d, 'subtotal', 4, 0.0))
             }
             for d in filas_detalles
         ]
 
-        return render_template(
-            'factura_imprimible.html',
-            factura=factura_dict,
-            detalles=detalles_lista,
-            sistema=SISTEMA_INFO
+        # Si se solicita explícitamente la vista HTML imprimible (?formato=html)
+        if request.args.get('formato') == 'html':
+            return render_template(
+                'factura_imprimible.html',
+                factura=factura_dict,
+                detalles=detalles_lista,
+                sistema=SISTEMA_INFO
+            )
+
+        # Compilar PDF del RIDE en memoria con ReportLab y descargarlo
+        buffer_pdf, numero_sri = generar_pdf_ride_sri(factura_dict, detalles_lista)
+        return send_file(
+            buffer_pdf,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"Factura_{numero_sri}.pdf"
         )
     except Exception as e:
-        flash(f"Error al generar comprobante: {e}", "danger")
-        return redirect(url_for('dashboard'))
+        flash(f"Error al generar comprobante PDF: {e}", "danger")
+        return redirect(url_for('mis_facturas' if current_user.rol == 'usuario' else 'facturacion'))
     finally:
         if cursor:
             cursor.close()
@@ -2434,19 +3267,41 @@ def finalizar_compra():
     finally:
         conn.close()
 
-# 7.7 AGREGAR MÚLTIPLES PRODUCTOS DESDE EL CATÁLOGO
+# 7.7 AGREGAR MÚLTIPLES PRODUCTOS DESDE EL CATÁLOGO (ROL CLIENTE - COMPRA MASIVA)
+@app.route('/carrito/agregar-masivo', methods=['POST'])
 @app.route('/carrito/agregar-multiples', methods=['POST'])
 @login_required
 def agregar_multiples_carrito():
-    ids_seleccionados = request.form.getlist('productos_seleccionados')
-    
+    es_peticion_json = (
+        request.is_json
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or 'application/json' in request.headers.get('Accept', '')
+    )
+
+    ids_seleccionados, payload = extraer_ids_lote()
+    cantidades_json = payload.get('cantidades', {}) if isinstance(payload, dict) else {}
+
     if not ids_seleccionados:
-        flash('No ha seleccionado ningún producto para agregar al carrito.', 'warning')
+        msg_vacio = 'No ha seleccionado ningún producto para agregar al carrito.'
+        if es_peticion_json:
+            return jsonify({
+                "status": "error",
+                "mensaje": msg_vacio,
+                "afectados": 0
+            }), 400
+        flash(msg_vacio, 'warning')
         return redirect(url_for('productos'))
 
     conn = obtener_conexion()
     if not conn:
-        flash('Error de conexión a la base de datos.', 'danger')
+        msg_err = 'Error de conexión a la base de datos.'
+        if es_peticion_json:
+            return jsonify({
+                "status": "error",
+                "mensaje": msg_err,
+                "afectados": 0
+            }), 500
+        flash(msg_err, 'danger')
         return redirect(url_for('productos'))
 
     try:
@@ -2456,15 +3311,20 @@ def agregar_multiples_carrito():
         carrito = session['carrito']
 
         agregados_count = 0
+        omitidos_stock = []
 
-        for id_str in ids_seleccionados:
+        for id_producto in ids_seleccionados:
             try:
-                id_producto = int(id_str)
-                cant_solicitada = int(request.form.get(f'cantidad_{id_producto}', 1))
+                cant_raw = (
+                    cantidades_json.get(str(id_producto))
+                    if isinstance(cantidades_json, dict) and str(id_producto) in cantidades_json
+                    else request.form.get(f'cantidad_{id_producto}', 1)
+                )
+                cant_solicitada = int(cant_raw)
                 if cant_solicitada < 1:
                     cant_solicitada = 1
-            except ValueError:
-                continue
+            except (ValueError, TypeError):
+                cant_solicitada = 1
 
             cursor.execute('SELECT id, nombre, precio, stock FROM productos WHERE id = %s AND activo = TRUE;', (id_producto,))
             prod = cursor.fetchone()
@@ -2474,11 +3334,16 @@ def agregar_multiples_carrito():
                 precio_prod = float(extraer_columna(prod, 'precio', 2, 0.0))
                 stock_prod = int(extraer_columna(prod, 'stock', 3, 0))
 
+                if stock_prod <= 0:
+                    omitidos_stock.append(f"{nombre_prod} (Agotado)")
+                    continue
+
                 prod_id_str = str(id_producto)
                 cant_actual = carrito.get(prod_id_str, {}).get('cantidad', 0)
                 nueva_cant = cant_actual + cant_solicitada
 
                 if nueva_cant > stock_prod:
+                    omitidos_stock.append(f"{nombre_prod} (Máx: {stock_prod})")
                     flash(f'Stock insuficiente para "{nombre_prod}". Máximo disponible: {stock_prod}. Se omitió este ítem.', 'warning')
                     continue
 
@@ -2495,16 +3360,628 @@ def agregar_multiples_carrito():
         session['carrito'] = carrito
         session.modified = True
 
+        total_unidades_carrito = sum(int(item.get('cantidad', 0)) for item in carrito.values())
+
         if agregados_count > 0:
-            flash(f'¡Se agregaron con éxito {agregados_count} producto(s) seleccionados al carrito!', 'success')
-        
+            msg_ok = f'¡Se agregaron con éxito {agregados_count} producto(s) seleccionados al carrito!'
+            flash(msg_ok, 'success')
+        else:
+            msg_ok = 'No se pudieron agregar los productos seleccionados por falta de stock disponible.'
+
+        if es_peticion_json:
+            status_resp = "success" if agregados_count > 0 else "error"
+            code_resp = 200 if agregados_count > 0 else 400
+            return jsonify({
+                "status": status_resp,
+                "mensaje": msg_ok,
+                "afectados": agregados_count,
+                "omitidos": omitidos_stock,
+                "carrito_items": len(carrito),
+                "carrito_unidades": total_unidades_carrito,
+                "redirect_url": url_for('ver_carrito')
+            }), code_resp
+
         return redirect(url_for('ver_carrito'))
 
     except Exception as e:
-        flash(f'Error al procesar la selección múltiple: {e}', 'danger')
+        msg_ex = f'Error al procesar la selección múltiple: {e}'
+        if es_peticion_json:
+            return jsonify({
+                "status": "error",
+                "mensaje": msg_ex,
+                "afectados": 0
+            }), 500
+        flash(msg_ex, 'danger')
         return redirect(url_for('productos'))
     finally:
         conn.close()
+
+# ==============================================================================
+# MÓDULO 5: AUDITORÍA DEL SISTEMA (EXCLUSIVO PARA ADMINISTRADORES)
+# ==============================================================================
+@app.route('/auditoria')
+@login_required
+@roles_requeridos('admin')
+def auditoria():
+    conn = obtener_conexion()
+    registros_auditoria = []
+    tablas_disponibles = []
+
+    page = request.args.get('page', 1, type=int)
+    if page < 1:
+        page = 1
+    per_page = 15
+    offset = (page - 1) * per_page
+
+    # Filtros por query params (soporta nombres completos y abreviados)
+    tabla_filtro = (request.args.get('tabla_afectada') or request.args.get('tabla') or '').strip()
+    operacion_filtro = (request.args.get('operacion') or '').strip().upper()
+    usuario_filtro = (request.args.get('usuario') or '').strip()
+    fecha_desde = (request.args.get('fecha_desde') or request.args.get('desde') or '').strip()
+    fecha_hasta = (request.args.get('fecha_hasta') or request.args.get('hasta') or '').strip()
+
+    total_items = 0
+    total_pages = 1
+
+    if conn:
+        try:
+            cursor = conn.cursor()
+
+            # 1. Obtener listado dinámico de tablas registradas en auditoría para el selector
+            cursor.execute('''
+                SELECT DISTINCT tabla_afectada 
+                FROM auditoria 
+                WHERE tabla_afectada IS NOT NULL 
+                ORDER BY tabla_afectada ASC;
+            ''')
+            filas_tablas = cursor.fetchall()
+            tablas_disponibles = [
+                str(extraer_columna(t, 'tabla_afectada', 0))
+                for t in filas_tablas
+                if extraer_columna(t, 'tabla_afectada', 0)
+            ]
+
+            # 2. Construcción segura y parametrizada de cláusulas WHERE
+            where_clauses = ["1=1"]
+            params = []
+
+            if tabla_filtro:
+                where_clauses.append("a.tabla_afectada = %s")
+                params.append(tabla_filtro)
+
+            if operacion_filtro in ('INSERT', 'UPDATE', 'SOFT_DELETE', 'DELETE'):
+                where_clauses.append("UPPER(a.operacion) = %s")
+                params.append(operacion_filtro)
+
+            if usuario_filtro:
+                where_clauses.append("COALESCE(a.usuario, '') ILIKE %s")
+                params.append(f"%{usuario_filtro}%")
+
+            if fecha_desde:
+                where_clauses.append("DATE(a.fecha_hora) >= %s")
+                params.append(fecha_desde)
+
+            if fecha_hasta:
+                where_clauses.append("DATE(a.fecha_hora) <= %s")
+                params.append(fecha_hasta)
+
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+
+            # 3. Conteo total de registros filtrados
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total
+                FROM auditoria a
+                {where_sql};
+            ''', tuple(params))
+            row_count = cursor.fetchone()
+            total_items = int(extraer_columna(row_count, 'total', 0, 0))
+            total_pages = math.ceil(total_items / per_page) if total_items > 0 else 1
+
+            # 4. Consulta paginada ordenada por fecha_hora DESC
+            query_datos = f'''
+                SELECT a.id_auditoria,
+                       a.tabla_afectada,
+                       a.operacion,
+                       a.id_registro,
+                       a.datos_previos,
+                       a.datos_nuevos,
+                       COALESCE(a.usuario, 'system') AS usuario,
+                       a.fecha_hora
+                FROM auditoria a
+                {where_sql}
+                ORDER BY a.fecha_hora DESC, a.id_auditoria DESC
+                LIMIT %s OFFSET %s;
+            '''
+            params_datos = list(params) + [per_page, offset]
+            cursor.execute(query_datos, tuple(params_datos))
+            filas = cursor.fetchall()
+            cursor.close()
+
+            for fila in filas:
+                fecha_raw = extraer_columna(fila, 'fecha_hora', 7)
+                if hasattr(fecha_raw, 'strftime'):
+                    fecha_fmt = fecha_raw.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    fecha_fmt = str(fecha_raw or '')
+
+                registros_auditoria.append({
+                    'id_auditoria': extraer_columna(fila, 'id_auditoria', 0),
+                    'tabla_afectada': extraer_columna(fila, 'tabla_afectada', 1, 'N/A'),
+                    'operacion': str(extraer_columna(fila, 'operacion', 2, '')).upper(),
+                    'id_registro': extraer_columna(fila, 'id_registro', 3),
+                    'datos_previos': extraer_columna(fila, 'datos_previos', 4),
+                    'datos_nuevos': extraer_columna(fila, 'datos_nuevos', 5),
+                    'usuario': extraer_columna(fila, 'usuario', 6, 'system'),
+                    'fecha_hora': fecha_fmt
+                })
+
+        except Exception as e:
+            flash(f"Error al consultar el historial de auditoría: {e}", "danger")
+        finally:
+            conn.close()
+    else:
+        flash("Error de conexión con la base de datos.", "danger")
+
+    # Asegurar opciones base en el filtro de tablas aunque la tabla aún esté vacía
+    tablas_base = ['usuarios', 'clientes', 'proveedores', 'productos', 'facturas', 'detalle_facturas']
+    for tb in tablas_base:
+        if tb not in tablas_disponibles:
+            tablas_disponibles.append(tb)
+    tablas_disponibles.sort()
+
+    paginador = Paginacion(
+        items=registros_auditoria,
+        total_registros=total_items,
+        pagina_actual=page,
+        por_pagina=per_page
+    )
+
+    return render_template(
+        'auditoria.html',
+        registros=paginador.items,
+        paginador=paginador,
+        tablas_disponibles=tablas_disponibles,
+        sistema=SISTEMA_INFO,
+        page=paginador.pagina_actual,
+        total_pages=paginador.total_paginas,
+        total_items=paginador.total_registros,
+        per_page=per_page,
+        filtros={
+            'tabla_afectada': tabla_filtro,
+            'operacion': operacion_filtro,
+            'usuario': usuario_filtro,
+            'fecha_desde': fecha_desde,
+            'fecha_hasta': fecha_hasta
+        }
+    )
+
+
+# 5.1 EXPORTACIÓN DE AUDITORÍA A CSV (SIN LIMIT NI OFFSET, CON BOM UTF-8)
+@app.route('/auditoria/exportar')
+@login_required
+@roles_requeridos('admin')
+def exportar_auditoria():
+    conn = obtener_conexion()
+    if not conn:
+        flash("Error de conexión con la base de datos al exportar.", "danger")
+        return redirect(url_for('auditoria'))
+
+    # Captura de filtros (soporta tanto 'tabla'/'desde'/'hasta' como 'tabla_afectada'/'fecha_desde'/'fecha_hasta')
+    tabla_filtro = (request.args.get('tabla_afectada') or request.args.get('tabla') or '').strip()
+    operacion_filtro = (request.args.get('operacion') or '').strip().upper()
+    usuario_filtro = (request.args.get('usuario') or '').strip()
+    fecha_desde = (request.args.get('fecha_desde') or request.args.get('desde') or '').strip()
+    fecha_hasta = (request.args.get('fecha_hasta') or request.args.get('hasta') or '').strip()
+
+    try:
+        cursor = conn.cursor()
+
+        where_clauses = ["1=1"]
+        params = []
+
+        if tabla_filtro:
+            where_clauses.append("a.tabla_afectada = %s")
+            params.append(tabla_filtro)
+
+        if operacion_filtro in ('INSERT', 'UPDATE', 'SOFT_DELETE', 'DELETE'):
+            where_clauses.append("UPPER(a.operacion) = %s")
+            params.append(operacion_filtro)
+
+        if usuario_filtro:
+            where_clauses.append("COALESCE(a.usuario, '') ILIKE %s")
+            params.append(f"%{usuario_filtro}%")
+
+        if fecha_desde:
+            where_clauses.append("DATE(a.fecha_hora) >= %s")
+            params.append(fecha_desde)
+
+        if fecha_hasta:
+            where_clauses.append("DATE(a.fecha_hora) <= %s")
+            params.append(fecha_hasta)
+
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
+        query_exportar = f'''
+            SELECT a.id_auditoria,
+                   a.fecha_hora,
+                   COALESCE(a.usuario, 'system') AS usuario,
+                   a.tabla_afectada,
+                   a.operacion,
+                   a.id_registro,
+                   a.datos_previos,
+                   a.datos_nuevos
+            FROM auditoria a
+            {where_sql}
+            ORDER BY a.fecha_hora DESC, a.id_auditoria DESC;
+        '''
+        cursor.execute(query_exportar, tuple(params))
+        filas = cursor.fetchall()
+        cursor.close()
+
+        # Generación en memoria del archivo CSV con BOM UTF-8 (\ufeff) para Microsoft Excel
+        output = io.StringIO()
+        output.write('\ufeff')
+        writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+        # Cabeceras oficiales del reporte
+        writer.writerow([
+            'ID',
+            'Fecha y Hora',
+            'Usuario',
+            'Tabla Afectada',
+            'Operación',
+            'ID Registro',
+            'Datos Previos',
+            'Datos Nuevos'
+        ])
+
+        for fila in filas:
+            id_aud = extraer_columna(fila, 'id_auditoria', 0, '')
+            fecha_raw = extraer_columna(fila, 'fecha_hora', 1)
+            if hasattr(fecha_raw, 'strftime'):
+                fecha_str = fecha_raw.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                fecha_str = str(fecha_raw or '')
+
+            usuario_str = extraer_columna(fila, 'usuario', 2, 'system')
+            tabla_str = extraer_columna(fila, 'tabla_afectada', 3, '')
+            operacion_str = str(extraer_columna(fila, 'operacion', 4, '')).upper()
+            id_reg = extraer_columna(fila, 'id_registro', 5, '')
+            prev_raw = extraer_columna(fila, 'datos_previos', 6)
+            nuev_raw = extraer_columna(fila, 'datos_nuevos', 7)
+
+            prev_json = json.dumps(prev_raw, ensure_ascii=False) if prev_raw is not None else ''
+            nuev_json = json.dumps(nuev_raw, ensure_ascii=False) if nuev_raw is not None else ''
+
+            writer.writerow([
+                id_aud,
+                fecha_str,
+                usuario_str,
+                tabla_str,
+                operacion_str,
+                id_reg,
+                prev_json,
+                nuev_json
+            ])
+
+        csv_contenido = output.getvalue()
+        output.close()
+
+        nombre_archivo = f"auditoria_techmanager_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        return Response(
+            csv_contenido,
+            mimetype='text/csv; charset=utf-8',
+            headers={
+                "Content-Disposition": f"attachment; filename={nombre_archivo}"
+            }
+        )
+
+    except Exception as e:
+        flash(f"Error al exportar la bitácora de auditoría: {e}", "danger")
+        return redirect(url_for('auditoria'))
+    finally:
+        conn.close()
+
+
+# ==============================================================================
+# MÓDULO 6: PERFIL DE USUARIO Y SEGURIDAD DE CUENTA
+# ==============================================================================
+
+def asegurar_columnas_perfil_usuarios(conn):
+    """
+    Garantiza que la tabla 'usuarios' en PostgreSQL cuente con las columnas
+    nombre, telefono, cedula y direccion antes de consultar o actualizar el perfil.
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            ALTER TABLE usuarios
+                ADD COLUMN IF NOT EXISTS nombre VARCHAR(150) NULL,
+                ADD COLUMN IF NOT EXISTS telefono VARCHAR(20) NULL,
+                ADD COLUMN IF NOT EXISTS cedula VARCHAR(13) NULL,
+                ADD COLUMN IF NOT EXISTS direccion TEXT NULL;
+        """)
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+
+
+# 1. VISUALIZACIÓN DE PERFIL
+@app.route('/perfil')
+@login_required
+def perfil():
+    conn = obtener_conexion()
+    if not conn:
+        flash("Error de conexión con la base de datos.", "danger")
+        return redirect(url_for('inicio'))
+
+    asegurar_columnas_perfil_usuarios(conn)
+
+    datos_perfil = {
+        'id': current_user.id,
+        'usuario': current_user.usuario,
+        'nombre': getattr(current_user, 'nombre', '') or current_user.usuario,
+        'email': getattr(current_user, 'email', '') or '',
+        'telefono': '',
+        'cedula': '',
+        'direccion': '',
+        'rol': getattr(current_user, 'rol', 'usuario'),
+        'activo': True,
+        'fecha_registro': None
+    }
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT u.*,
+                   c.nombre AS cliente_nombre,
+                   c.telefono AS cliente_telefono,
+                   c.ruc AS cliente_ruc
+            FROM usuarios u
+            LEFT JOIN clientes c ON c.usuario_id = u.id
+            WHERE u.id = %s
+            LIMIT 1;
+        ''', (int(current_user.id),))
+        fila = cursor.fetchone()
+        cursor.close()
+
+        if fila:
+            if isinstance(fila, dict):
+                nombre_val = fila.get('nombre') or fila.get('cliente_nombre') or fila.get('usuario')
+                telefono_val = fila.get('telefono') or fila.get('cliente_telefono') or ''
+                cedula_val = fila.get('cedula') or fila.get('cliente_ruc') or ''
+                direccion_val = fila.get('direccion') or ''
+                fecha_raw = fila.get('fecha_registro') or fila.get('created_at')
+                if hasattr(fecha_raw, 'strftime'):
+                    fecha_fmt = fecha_raw.strftime('%d/%m/%Y %H:%M')
+                else:
+                    fecha_fmt = str(fecha_raw) if fecha_raw else None
+
+                datos_perfil.update({
+                    'id': fila.get('id', current_user.id),
+                    'usuario': fila.get('usuario', current_user.usuario),
+                    'nombre': nombre_val,
+                    'email': fila.get('email', ''),
+                    'telefono': telefono_val,
+                    'cedula': cedula_val,
+                    'direccion': direccion_val,
+                    'rol': (fila.get('rol') or 'usuario').lower(),
+                    'activo': bool(fila.get('activo', True)),
+                    'fecha_registro': fecha_fmt
+                })
+            else:
+                datos_perfil['usuario'] = extraer_columna(fila, 'usuario', 1, current_user.usuario)
+                datos_perfil['email'] = extraer_columna(fila, 'email', 2, '')
+
+    except Exception as e:
+        flash(f"Error al cargar la información del perfil: {e}", "danger")
+    finally:
+        conn.close()
+
+    return render_template('perfil.html', perfil=datos_perfil, sistema=SISTEMA_INFO)
+
+
+# 2. ACTUALIZACIÓN DE DATOS DEL PERFIL (DISPARA TRIGGER DE AUDITORÍA EN 'usuarios')
+@app.route('/perfil/actualizar', methods=['POST'])
+@login_required
+def actualizar_perfil():
+    nombre = request.form.get('nombre', '').strip()
+    email = request.form.get('email', '').strip().lower()
+    telefono = request.form.get('telefono', '').strip()
+    cedula = request.form.get('cedula', '').strip()
+    direccion = request.form.get('direccion', '').strip()
+
+    if not nombre or len(nombre) < 3:
+        flash('El nombre completo es obligatorio y debe contener al menos 3 caracteres.', 'warning')
+        return redirect(url_for('perfil'))
+
+    if not email or '@' not in email:
+        flash('Debe ingresar una dirección de correo electrónico válida.', 'warning')
+        return redirect(url_for('perfil'))
+
+    if cedula and (not cedula.isdigit() or len(cedula) not in (10, 13)):
+        flash('La Cédula o RUC debe contener únicamente números (10 o 13 dígitos).', 'warning')
+        return redirect(url_for('perfil'))
+
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión con la base de datos.', 'danger')
+        return redirect(url_for('perfil'))
+
+    asegurar_columnas_perfil_usuarios(conn)
+
+    try:
+        cursor = conn.cursor()
+        user_id = int(current_user.id)
+
+        # 1. Validar que el email no esté en uso por otro ID de usuario diferente
+        cursor.execute(
+            'SELECT id FROM usuarios WHERE LOWER(email) = LOWER(%s) AND id != %s LIMIT 1;',
+            (email, user_id)
+        )
+        if cursor.fetchone():
+            cursor.close()
+            flash('El correo electrónico ingresado ya está registrado por otro usuario.', 'warning')
+            return redirect(url_for('perfil'))
+
+        # 2. Validar que la cédula/RUC no esté repetida en otro registro de 'usuarios' ni 'clientes'
+        if cedula:
+            cursor.execute(
+                'SELECT id FROM usuarios WHERE cedula = %s AND id != %s LIMIT 1;',
+                (cedula, user_id)
+            )
+            if cursor.fetchone():
+                cursor.close()
+                flash('El número de Cédula / RUC ingresado ya se encuentra asociado a otro usuario.', 'warning')
+                return redirect(url_for('perfil'))
+
+            cursor.execute(
+                'SELECT id FROM clientes WHERE ruc = %s AND (usuario_id IS NULL OR usuario_id != %s) LIMIT 1;',
+                (cedula, user_id)
+            )
+            if cursor.fetchone():
+                cursor.close()
+                flash('El número de Cédula / RUC ya pertenece a otro cliente registrado en el directorio.', 'warning')
+                return redirect(url_for('perfil'))
+
+        # 3. Ejecutar UPDATE parametrizado sobre 'usuarios' (dispara el trigger de auditoría)
+        cursor.execute('''
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'usuarios';
+        ''')
+        cols_usuarios = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
+
+        set_clauses = [
+            "nombre = %s",
+            "email = %s",
+            "telefono = %s",
+            "cedula = %s",
+            "direccion = %s"
+        ]
+        params_update = [
+            nombre,
+            email,
+            telefono or None,
+            cedula or None,
+            direccion or None
+        ]
+
+        if 'modified_by' in cols_usuarios:
+            set_clauses.append("modified_by = %s")
+            params_update.append(current_user.usuario)
+
+        params_update.append(user_id)
+        cursor.execute(
+            f"UPDATE usuarios SET {', '.join(set_clauses)} WHERE id = %s;",
+            tuple(params_update)
+        )
+
+        # 4. Sincronizar también con la ficha en 'clientes' si el usuario tiene perfil comercial asociado
+        cursor.execute('SELECT id FROM clientes WHERE usuario_id = %s LIMIT 1;', (user_id,))
+        cli_row = cursor.fetchone()
+        if cli_row:
+            cli_id = extraer_columna(cli_row, 'id', 0)
+            cursor.execute('''
+                UPDATE clientes
+                SET nombre = %s,
+                    email = %s,
+                    telefono = CASE WHEN %s != '' THEN %s ELSE telefono END,
+                    ruc = CASE WHEN %s != '' THEN %s ELSE ruc END,
+                    modified_by = %s
+                WHERE id = %s;
+            ''', (nombre, email, telefono, telefono, cedula, cedula, current_user.usuario, cli_id))
+
+        conn.commit()
+        cursor.close()
+        flash('Los datos de su perfil, identificación y domicilio han sido actualizados exitosamente.', 'success')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error al actualizar el perfil: {e}', 'danger')
+    finally:
+        conn.close()
+
+    return redirect(url_for('perfil'))
+
+
+# 3. CAMBIO DE CONTRASEÑA DESDE EL PERFIL
+@app.route('/perfil/cambiar-password', methods=['POST'])
+@login_required
+def cambiar_password_perfil():
+    password_actual = request.form.get('password_actual', '')
+    nueva_password = request.form.get('nueva_password', '')
+    confirmar_password = request.form.get('confirmar_password', '')
+
+    if not password_actual or not nueva_password or not confirmar_password:
+        flash('Debe completar todos los campos de contraseña.', 'warning')
+        return redirect(url_for('perfil'))
+
+    if len(nueva_password) < 6:
+        flash('La nueva contraseña debe tener al menos 6 caracteres.', 'warning')
+        return redirect(url_for('perfil'))
+
+    if nueva_password != confirmar_password:
+        flash('La nueva contraseña y su confirmación no coinciden.', 'danger')
+        return redirect(url_for('perfil'))
+
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión con la base de datos.', 'danger')
+        return redirect(url_for('perfil'))
+
+    try:
+        cursor = conn.cursor()
+        user_id = int(current_user.id)
+
+        cursor.execute('SELECT password FROM usuarios WHERE id = %s LIMIT 1;', (user_id,))
+        fila = cursor.fetchone()
+
+        if not fila:
+            cursor.close()
+            flash('No se encontró el registro de usuario.', 'danger')
+            return redirect(url_for('perfil'))
+
+        hash_actual = extraer_columna(fila, 'password', 0, '')
+
+        if not check_password_hash(hash_actual, password_actual):
+            cursor.close()
+            flash('La contraseña actual ingresada es incorrecta.', 'danger')
+            return redirect(url_for('perfil'))
+
+        nuevo_hash = generate_password_hash(nueva_password)
+
+        cursor.execute('''
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'usuarios' AND column_name = 'modified_by';
+        ''')
+        tiene_modified_by = cursor.fetchone() is not None
+
+        if tiene_modified_by:
+            cursor.execute(
+                'UPDATE usuarios SET password = %s, modified_by = %s WHERE id = %s;',
+                (nuevo_hash, current_user.usuario, user_id)
+            )
+        else:
+            cursor.execute(
+                'UPDATE usuarios SET password = %s WHERE id = %s;',
+                (nuevo_hash, user_id)
+            )
+
+        conn.commit()
+        cursor.close()
+        flash('Su contraseña ha sido actualizada correctamente.', 'success')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error al cambiar la contraseña: {e}', 'danger')
+    finally:
+        conn.close()
+
+    return redirect(url_for('perfil'))
+
 
 # INICIO DE LA APLICACIÓN
 if __name__ == '__main__':

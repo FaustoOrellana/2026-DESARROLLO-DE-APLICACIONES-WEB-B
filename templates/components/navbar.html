@@ -57,6 +57,13 @@
                 <i class="bi bi-receipt me-1"></i>Facturación
               </a>
             </li>
+            {% if current_user.es_admin() %}
+            <li class="nav-item">
+              <a class="nav-link {{ 'active fw-semibold text-warning' if request.endpoint == 'auditoria' }}" href="{{ url_for('auditoria') }}">
+                <i class="bi bi-shield-lock me-1"></i>Auditoría
+              </a>
+            </li>
+            {% endif %}
           {% endif %}
 
           <!-- 5. Sección Cliente Comercial -->
@@ -85,20 +92,50 @@
       <!-- Lado derecho: Sesión y Autenticación -->
       <ul class="navbar-nav ms-auto align-items-lg-center">
         {% if current_user.is_authenticated %}
-          <li class="nav-item me-lg-3 my-2 my-lg-0 text-light d-flex align-items-center">
-            <i class="bi bi-person-circle fs-5 me-2 text-primary"></i>
-            <span class="fw-semibold">{{ current_user.usuario }}</span>
-            
-            {% if current_user.es_admin() %}
-              <span class="badge bg-danger text-uppercase ms-2" style="font-size: 0.7rem;">Admin</span>
-            {% elif current_user.rol == 'operador' %}
-              <span class="badge bg-warning text-dark text-uppercase ms-2" style="font-size: 0.7rem;">Operador</span>
-            {% else %}
-              <span class="badge bg-info text-dark text-uppercase ms-2" style="font-size: 0.7rem;">Usuario</span>
-            {% endif %}
+          <li class="nav-item dropdown me-lg-2 my-2 my-lg-0">
+            <a class="nav-link dropdown-toggle text-light d-flex align-items-center py-1 px-2 rounded-3 {{ 'active bg-secondary bg-opacity-25' if request.endpoint == 'perfil' }}"
+               href="#"
+               id="userDropdownMenu"
+               role="button"
+               data-bs-toggle="dropdown"
+               aria-expanded="false">
+              <i class="bi bi-person-circle fs-5 me-2 text-primary"></i>
+              <span class="fw-semibold">{{ current_user.usuario }}</span>
+              {% if current_user.es_admin() %}
+                <span class="badge bg-danger text-uppercase ms-2" style="font-size: 0.7rem;">Admin</span>
+              {% elif current_user.rol == 'operador' %}
+                <span class="badge bg-warning text-dark text-uppercase ms-2" style="font-size: 0.7rem;">Operador</span>
+              {% else %}
+                <span class="badge bg-info text-dark text-uppercase ms-2" style="font-size: 0.7rem;">Usuario</span>
+              {% endif %}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-3 mt-2" aria-labelledby="userDropdownMenu">
+              <li class="px-3 py-2 border-bottom bg-light rounded-top-3">
+                <span class="d-block small text-muted">Sesión activa</span>
+                <strong class="text-dark small">{{ current_user.nombre if current_user.nombre is defined and current_user.nombre else current_user.usuario }}</strong>
+              </li>
+              <li>
+                <a class="dropdown-item py-2 d-flex align-items-center {{ 'active' if request.endpoint == 'perfil' }}" href="{{ url_for('perfil') }}">
+                  <i class="bi bi-person-circle me-2 text-primary"></i>Mi Perfil
+                </a>
+              </li>
+              {% if current_user.es_admin() %}
+              <li>
+                <a class="dropdown-item py-2 d-flex align-items-center {{ 'active' if request.endpoint == 'auditoria' }}" href="{{ url_for('auditoria') }}">
+                  <i class="bi bi-shield-lock me-2 text-warning"></i>Bitácora de Auditoría
+                </a>
+              </li>
+              {% endif %}
+              <li><hr class="dropdown-divider my-1"></li>
+              <li>
+                <a class="dropdown-item py-2 text-danger d-flex align-items-center fw-semibold" href="{{ url_for('logout') }}">
+                  <i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión
+                </a>
+              </li>
+            </ul>
           </li>
 
-          <li class="nav-item">
+          <li class="nav-item d-lg-inline-block">
             <a class="btn btn-outline-danger btn-sm w-100 w-lg-auto rounded-3 px-3 shadow-sm" href="{{ url_for('logout') }}">
               <i class="bi bi-box-arrow-right me-1"></i>Cerrar sesión
             </a>

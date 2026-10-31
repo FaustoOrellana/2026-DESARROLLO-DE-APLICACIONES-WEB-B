@@ -1,0 +1,66 @@
+{# ==============================================================================
+   MACRO REUTILIZABLE DE PAGINACIÓN (Bootstrap 5 + Preservación de Query Params)
+   Uso:
+     {% from 'components/_paginacion.html' import render_paginacion %}
+     {{ render_paginacion(paginador, 'nombre_endpoint') }}
+   ============================================================================== #}
+{% macro render_paginacion(paginador, endpoint) %}
+{% if paginador and paginador.total_registros > 0 %}
+<div class="card-footer bg-white border-top py-3 px-4">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center gap-3">
+        <!-- Resumen informativo de registros visibles y página actual -->
+        <div class="text-muted small text-center text-md-start">
+            Mostrando <strong class="text-dark">{{ paginador.items | length }}</strong>
+            {% if paginador.registro_inicial > 0 %}
+                (<span class="text-secondary">{{ paginador.registro_inicial }}–{{ paginador.registro_final }}</span>)
+            {% endif %}
+            de <strong class="text-dark">{{ paginador.total_registros }}</strong> registros
+            <span class="mx-1 text-secondary">|</span>
+            Página <strong class="text-primary">{{ paginador.pagina_actual }}</strong> de <strong class="text-dark">{{ paginador.total_paginas }}</strong>
+        </div>
+
+        <!-- Controles de paginación Bootstrap 5 -->
+        {% if paginador.total_paginas > 1 %}
+        <nav aria-label="Navegación de páginas">
+            <ul class="pagination pagination-sm justify-content-center m-0 gap-1 flex-wrap">
+                <!-- Botón Anterior -->
+                <li class="page-item {{ 'disabled' if not paginador.tiene_anterior }}">
+                    <a class="page-link rounded-3 px-3 shadow-xs"
+                       href="{{ url_for(endpoint, **dict(request.args, page=paginador.pagina_anterior)) if paginador.tiene_anterior else '#' }}"
+                       {% if not paginador.tiene_anterior %}tabindex="-1" aria-disabled="true"{% endif %}>
+                        <i class="bi bi-chevron-left me-1"></i> Anterior
+                    </a>
+                </li>
+
+                <!-- Números de página con ventana deslizante -->
+                {% for num in paginador.rango_paginas() %}
+                    {% if num is none %}
+                    <li class="page-item disabled">
+                        <span class="page-link border-0 bg-transparent text-muted px-2">…</span>
+                    </li>
+                    {% else %}
+                    <li class="page-item {{ 'active' if num == paginador.pagina_actual }}">
+                        <a class="page-link rounded-3 px-3 fw-semibold"
+                           href="{{ url_for(endpoint, **dict(request.args, page=num)) }}">
+                            {{ num }}
+                        </a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                <!-- Botón Siguiente -->
+                <li class="page-item {{ 'disabled' if not paginador.tiene_siguiente }}">
+                    <a class="page-link rounded-3 px-3 shadow-xs"
+                       href="{{ url_for(endpoint, **dict(request.args, page=paginador.pagina_siguiente)) if paginador.tiene_siguiente else '#' }}"
+                       {% if not paginador.tiene_siguiente %}tabindex="-1" aria-disabled="true"{% endif %}>
+                        Siguiente <i class="bi bi-chevron-right ms-1"></i>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endmacro %}
+
