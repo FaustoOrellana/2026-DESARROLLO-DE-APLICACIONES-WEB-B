@@ -1276,7 +1276,7 @@ def cambiar_estado_producto(id):
 
 # MÓDULO: CLIENTES
 
-# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
+# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro por estado activo/inactivo/todos)
 @app.route('/clientes')
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -1285,16 +1285,40 @@ def clientes():
     clientes_db = []
     page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
+    estado_param = request.args.get('estado', 'activos', type=str).strip().lower()
+    estado_filtro = estado_param if estado_param in ('activos', 'inactivos', 'todos') else 'activos'
+
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
+    conteos_estado = {'activos': 0, 'inactivos': 0, 'todos': 0}
 
     if conn:
         try:
             cursor = conn.cursor()
-            
-            # Filtro base: solo clientes activos
-            where_sql = "WHERE c.activo = TRUE"
+
+            # Conteos rápidos por estado para las pestañas administrativas
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) FILTER (WHERE activo = TRUE) AS activos,
+                    COUNT(*) FILTER (WHERE activo = FALSE) AS inactivos,
+                    COUNT(*) AS todos
+                FROM clientes;
+            ''')
+            row_est = cursor.fetchone()
+            if row_est:
+                conteos_estado['activos'] = int(extraer_columna(row_est, 'activos', 0, 0) or 0)
+                conteos_estado['inactivos'] = int(extraer_columna(row_est, 'inactivos', 1, 0) or 0)
+                conteos_estado['todos'] = int(extraer_columna(row_est, 'todos', 2, 0) or 0)
+
+            # Filtro según el estado seleccionado
+            if estado_filtro == 'inactivos':
+                where_sql = "WHERE c.activo = FALSE"
+            elif estado_filtro == 'todos':
+                where_sql = "WHERE 1=1"
+            else:
+                where_sql = "WHERE c.activo = TRUE"
+
             params = []
             
             if q:
@@ -1317,10 +1341,11 @@ def clientes():
             row_count = cursor.fetchone()
             total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            # b) Consulta paginada con LIMIT y OFFSET
+            # b) Consulta paginada con LIMIT y OFFSET (incluyendo c.activo)
             query_datos = f'''
                 SELECT c.id, c.nombre, c.ruc, c.telefono, c.email,
-                       COALESCE(ci.nombre, 'No asignada') AS ciudad
+                       COALESCE(ci.nombre, 'No asignada') AS ciudad,
+                       c.activo
                 FROM clientes c
                 LEFT JOIN ciudades ci ON c.id_ciudad = ci.id
                 {where_sql}
@@ -1353,7 +1378,9 @@ def clientes():
         page=paginador.pagina_actual,
         total_pages=paginador.total_paginas,
         total_items=paginador.total_registros,
-        q=q
+        q=q,
+        estado_actual=estado_filtro,
+        conteos_estado=conteos_estado
     )
 
 
@@ -1485,7 +1512,7 @@ def editar_cliente(id):
     return render_template('formulario_cliente.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Cliente")
 
 
-# 4. ELIMINAR (SOFT DELETE: UPDATE activo = FALSE con modified_by y commit)
+# 4. ELIMINAR CLIENTE INDIVIDUAL (BLOQUEO ESTRICTO SI TIENE FACTURAS EMITIDAS)
 @app.route('/clientes/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -1494,23 +1521,85 @@ def eliminar_cliente(id):
     if conn:
         try:
             cursor = conn.cursor()
-            # En lugar de DELETE físico, se realiza borrado lógico preservando la integridad referencial con facturas.
-            # El trigger global registra automáticamente el evento 'SOFT_DELETE' en auditoria.
-            cursor.execute('''
-                UPDATE clientes 
-                SET activo = FALSE, modified_by = %s 
-                WHERE id = %s;
-            ''', (current_user.usuario, id))
+            cursor.execute('SELECT id, nombre FROM clientes WHERE id = %s;', (id,))
+            cli = cursor.fetchone()
+            if not cli:
+                cursor.close()
+                flash('El cliente solicitado no existe.', 'warning')
+                return redirect(request.referrer or url_for('clientes'))
+
+            cli_id = extraer_columna(cli, 'id', 0)
+            cli_nombre = extraer_columna(cli, 'nombre', 1)
+
+            # Verificar si tiene facturas emitidas
+            cursor.execute('SELECT 1 FROM facturas WHERE id_cliente = %s LIMIT 1;', (cli_id,))
+            if cursor.fetchone() is not None:
+                conn.rollback()
+                cursor.close()
+                flash(
+                    f"Operación denegada: El cliente '{cli_nombre}' registra comprobantes fiscales emitidos y no puede ser eliminado físicamente. "
+                    f"Utilice la opción 'Archivar / Desactivar'.",
+                    'danger'
+                )
+                return redirect(request.referrer or url_for('clientes'))
+
+            cursor.execute('UPDATE clientes SET modified_by = %s WHERE id = %s;', (current_user.usuario, cli_id))
+            cursor.execute('DELETE FROM clientes WHERE id = %s;', (cli_id,))
             conn.commit()
             cursor.close()
-            flash('Cliente dado de baja satisfactoriamente.', 'info')
+            flash(f"Cliente '{cli_nombre}' eliminado definitivamente (sin historial fiscal).", 'success')
         except Exception as e:
             conn.rollback()
-            flash(f'Error al dar de baja al cliente: {e}', 'danger')
+            flash(f'Error al eliminar al cliente: {e}', 'danger')
         finally:
             conn.close()
 
-    return redirect(url_for('clientes'))
+    return redirect(request.referrer or url_for('clientes'))
+
+
+# 4.1 ACTIVACIÓN / DESACTIVACIÓN MANUAL DE CLIENTE (CON AUDITORÍA)
+@app.route('/clientes/cambiar-estado/<int:id>', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def cambiar_estado_cliente(id):
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión a la base de datos.', 'danger')
+        return redirect(request.referrer or url_for('clientes'))
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, nombre, activo FROM clientes WHERE id = %s;', (id,))
+        cli = cursor.fetchone()
+        if not cli:
+            cursor.close()
+            flash('El cliente solicitado no existe.', 'warning')
+            return redirect(request.referrer or url_for('clientes'))
+
+        cli_id = extraer_columna(cli, 'id', 0)
+        cli_nombre = extraer_columna(cli, 'nombre', 1)
+        estado_actual = bool(extraer_columna(cli, 'activo', 2, True))
+        nuevo_estado = not estado_actual
+
+        cursor.execute('''
+            UPDATE clientes
+            SET activo = %s, modified_by = %s
+            WHERE id = %s;
+        ''', (nuevo_estado, current_user.usuario, cli_id))
+        conn.commit()
+        cursor.close()
+
+        if nuevo_estado:
+            flash(f"Cliente '{cli_nombre}' reactivado e incorporado nuevamente al directorio activo.", 'success')
+        else:
+            flash(f"Cliente '{cli_nombre}' archivado/desactivado correctamente. Su historial fiscal permanece intacto.", 'info')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error al cambiar el estado del cliente: {e}', 'danger')
+    finally:
+        conn.close()
+
+    return redirect(request.referrer or url_for('clientes'))
 
 
 # 5. ELIMINACIÓN EN LOTE DE CLIENTES (SOFT DELETE SI TIENE FACTURAS, DELETE FÍSICO SI NO TIENE MOVIMIENTOS)
@@ -1590,7 +1679,7 @@ def eliminar_clientes_masivo():
 
 # MÓDULO 3: PROVEEDORES
 
-# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro de activos)
+# 1. LISTADO (SELECT con LEFT JOIN, búsqueda, paginación y filtro por estado activo/inactivo/todos)
 @app.route('/proveedores')
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -1599,16 +1688,40 @@ def proveedores():
     proveedores_db = []
     page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
+    estado_param = request.args.get('estado', 'activos', type=str).strip().lower()
+    estado_filtro = estado_param if estado_param in ('activos', 'inactivos', 'todos') else 'activos'
+
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
+    conteos_estado = {'activos': 0, 'inactivos': 0, 'todos': 0}
 
     if conn:
         try:
             cursor = conn.cursor()
-            
-            # Filtro base: solo proveedores activos
-            where_sql = "WHERE p.activo = TRUE"
+
+            # Conteos rápidos por estado para las pestañas administrativas
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) FILTER (WHERE activo = TRUE) AS activos,
+                    COUNT(*) FILTER (WHERE activo = FALSE) AS inactivos,
+                    COUNT(*) AS todos
+                FROM proveedores;
+            ''')
+            row_est = cursor.fetchone()
+            if row_est:
+                conteos_estado['activos'] = int(extraer_columna(row_est, 'activos', 0, 0) or 0)
+                conteos_estado['inactivos'] = int(extraer_columna(row_est, 'inactivos', 1, 0) or 0)
+                conteos_estado['todos'] = int(extraer_columna(row_est, 'todos', 2, 0) or 0)
+
+            # Filtro según el estado seleccionado
+            if estado_filtro == 'inactivos':
+                where_sql = "WHERE p.activo = FALSE"
+            elif estado_filtro == 'todos':
+                where_sql = "WHERE 1=1"
+            else:
+                where_sql = "WHERE p.activo = TRUE"
+
             params = []
 
             if q:
@@ -1633,11 +1746,12 @@ def proveedores():
             row_count = cursor.fetchone()
             total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            # b) Consulta paginada con LIMIT y OFFSET
+            # b) Consulta paginada con LIMIT y OFFSET (incluyendo p.activo)
             query_datos = f'''
                 SELECT p.id, p.nombre, p.contacto, p.telefono, 
                        COALESCE(c.nombre, 'Sin categoría') AS categoria,
-                       COALESCE(ci.nombre, 'No asignada') AS ciudad
+                       COALESCE(ci.nombre, 'No asignada') AS ciudad,
+                       p.activo
                 FROM proveedores p
                 LEFT JOIN categorias c ON p.id_categoria = c.id
                 LEFT JOIN ciudades ci ON p.id_ciudad = ci.id
@@ -1671,7 +1785,9 @@ def proveedores():
         page=paginador.pagina_actual,
         total_pages=paginador.total_paginas,
         total_items=paginador.total_registros,
-        q=q
+        q=q,
+        estado_actual=estado_filtro,
+        conteos_estado=conteos_estado
     )
 
 
@@ -1822,7 +1938,7 @@ def editar_proveedor(id):
     return render_template('formulario_proveedor.html', form=form, sistema=SISTEMA_INFO, titulo="Editar Proveedor")
 
 
-# 4. ELIMINAR (SOFT DELETE: UPDATE activo = FALSE con modified_by y commit)
+# 4. ELIMINAR PROVEEDOR INDIVIDUAL (CON VERIFICACIÓN DE PRODUCTOS VINCULADOS)
 @app.route('/proveedores/eliminar/<int:id>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -1831,22 +1947,85 @@ def eliminar_proveedor(id):
     if conn:
         try:
             cursor = conn.cursor()
-            # Borrado lógico: preserva la integridad referencial y registra la auditoría automáticamente
-            cursor.execute('''
-                UPDATE proveedores 
-                SET activo = FALSE, modified_by = %s 
-                WHERE id = %s;
-            ''', (current_user.usuario, id))
+            cursor.execute('SELECT id, nombre, id_categoria FROM proveedores WHERE id = %s;', (id,))
+            prov = cursor.fetchone()
+            if not prov:
+                cursor.close()
+                flash('El proveedor solicitado no existe.', 'warning')
+                return redirect(request.referrer or url_for('proveedores'))
+
+            prov_id = extraer_columna(prov, 'id', 0)
+            prov_nombre = extraer_columna(prov, 'nombre', 1)
+            id_cat_prov = extraer_columna(prov, 'id_categoria', 2)
+
+            cursor.execute('SELECT 1 FROM productos WHERE id_categoria = %s AND activo = TRUE LIMIT 1;', (id_cat_prov,))
+            if cursor.fetchone() is not None:
+                conn.rollback()
+                cursor.close()
+                flash(
+                    f"Operación denegada: El proveedor '{prov_nombre}' posee productos o suministros vinculados y no puede ser eliminado físicamente. "
+                    f"Utilice la opción 'Archivar / Desactivar'.",
+                    'danger'
+                )
+                return redirect(request.referrer or url_for('proveedores'))
+
+            cursor.execute('UPDATE proveedores SET modified_by = %s WHERE id = %s;', (current_user.usuario, prov_id))
+            cursor.execute('DELETE FROM proveedores WHERE id = %s;', (prov_id,))
             conn.commit()
             cursor.close()
-            flash('Proveedor dado de baja satisfactoriamente.', 'info')
+            flash(f"Proveedor '{prov_nombre}' eliminado definitivamente.", 'success')
         except Exception as e:
             conn.rollback()
-            flash(f'Error al dar de baja el proveedor: {e}', 'danger')
+            flash(f'Error al eliminar el proveedor: {e}', 'danger')
         finally:
             conn.close()
 
-    return redirect(url_for('proveedores'))
+    return redirect(request.referrer or url_for('proveedores'))
+
+
+# 4.1 ACTIVACIÓN / DESACTIVACIÓN MANUAL DE PROVEEDOR (CON AUDITORÍA)
+@app.route('/proveedores/cambiar-estado/<int:id>', methods=['POST'])
+@login_required
+@roles_requeridos('admin')
+def cambiar_estado_proveedor(id):
+    conn = obtener_conexion()
+    if not conn:
+        flash('Error de conexión a la base de datos.', 'danger')
+        return redirect(request.referrer or url_for('proveedores'))
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, nombre, activo FROM proveedores WHERE id = %s;', (id,))
+        prov = cursor.fetchone()
+        if not prov:
+            cursor.close()
+            flash('El proveedor solicitado no existe.', 'warning')
+            return redirect(request.referrer or url_for('proveedores'))
+
+        prov_id = extraer_columna(prov, 'id', 0)
+        prov_nombre = extraer_columna(prov, 'nombre', 1)
+        estado_actual = bool(extraer_columna(prov, 'activo', 2, True))
+        nuevo_estado = not estado_actual
+
+        cursor.execute('''
+            UPDATE proveedores
+            SET activo = %s, modified_by = %s
+            WHERE id = %s;
+        ''', (nuevo_estado, current_user.usuario, prov_id))
+        conn.commit()
+        cursor.close()
+
+        if nuevo_estado:
+            flash(f"Proveedor '{prov_nombre}' reactivado e incorporado nuevamente a la cadena de suministro activa.", 'success')
+        else:
+            flash(f"Proveedor '{prov_nombre}' archivado/desactivado correctamente. Su trazabilidad operativa permanece intacta.", 'info')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error al cambiar el estado del proveedor: {e}', 'danger')
+    finally:
+        conn.close()
+
+    return redirect(request.referrer or url_for('proveedores'))
 
 
 # 5. ELIMINACIÓN EN LOTE DE PROVEEDORES (SOFT DELETE SI TIENE PRODUCTOS/ÓRDENES ASOCIADOS, DELETE FÍSICO SI NO)
@@ -1954,7 +2133,7 @@ def eliminar_proveedores_masivo():
 # MÓDULO 4: FACTURACIÓN & CARRITO DE COMPRAS
 # ==============================================================================
 
-# 1. LISTADO ADMINISTRATIVO (Búsqueda, Paginación, Detalle de Productos y Filtro de Activas)
+# 1. LISTADO ADMINISTRATIVO (Búsqueda, Paginación, Detalle de Productos y Filtro por Estado Válidas/Anuladas/Todas)
 @app.route('/facturacion')
 @login_required
 @roles_requeridos('admin', 'operador')
@@ -1963,15 +2142,39 @@ def facturacion():
     facturas_db = []
     page = max(1, request.args.get('page', 1, type=int))
     q = request.args.get('q', '', type=str).strip()
+    estado_param = request.args.get('estado', 'validas', type=str).strip().lower()
+    estado_filtro = estado_param if estado_param in ('validas', 'anuladas', 'todas') else 'validas'
+
     per_page = 8
     offset = (page - 1) * per_page
     total_items = 0
+    conteos_estado = {'validas': 0, 'anuladas': 0, 'todas': 0}
 
     if conn:
         try:
             cursor = conn.cursor()
-            
-            where_sql = "WHERE f.activo = TRUE"
+
+            # Conteos por estado tributario para las pestañas administrativas
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) FILTER (WHERE id_estado IN (1, 2)) AS validas,
+                    COUNT(*) FILTER (WHERE id_estado = 3) AS anuladas,
+                    COUNT(*) AS todas
+                FROM facturas;
+            ''')
+            row_est = cursor.fetchone()
+            if row_est:
+                conteos_estado['validas'] = int(extraer_columna(row_est, 'validas', 0, 0) or 0)
+                conteos_estado['anuladas'] = int(extraer_columna(row_est, 'anuladas', 1, 0) or 0)
+                conteos_estado['todas'] = int(extraer_columna(row_est, 'todas', 2, 0) or 0)
+
+            if estado_filtro == 'anuladas':
+                where_sql = "WHERE f.id_estado = 3"
+            elif estado_filtro == 'todas':
+                where_sql = "WHERE 1=1"
+            else:
+                where_sql = "WHERE f.id_estado IN (1, 2)"
+
             params = []
 
             # Permite buscar por N° comprobante, Cliente, RUC o Nombre de Producto facturado
@@ -2006,6 +2209,7 @@ def facturacion():
                        c.nombre AS cliente, 
                        f.fecha, 
                        f.monto, 
+                       f.id_estado,
                        e.nombre AS estado, 
                        COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
                        COALESCE(SUM(df.cantidad), 0) AS total_articulos,
@@ -2017,7 +2221,7 @@ def facturacion():
                 LEFT JOIN detalle_facturas df ON df.id_factura = f.id
                 LEFT JOIN productos p ON df.id_producto = p.id
                 {where_sql}
-                GROUP BY f.id, f.numero, c.nombre, f.fecha, f.monto, e.nombre, mp.nombre
+                GROUP BY f.id, f.numero, c.nombre, f.fecha, f.monto, f.id_estado, e.nombre, mp.nombre
                 ORDER BY f.id DESC
                 LIMIT %s OFFSET %s;
             '''
@@ -2047,7 +2251,9 @@ def facturacion():
         page=paginador.pagina_actual,
         total_pages=paginador.total_paginas,
         total_items=paginador.total_registros,
-        q=q
+        q=q,
+        estado_actual=estado_filtro,
+        conteos_estado=conteos_estado
     )
 
 
@@ -2392,7 +2598,7 @@ def editar_factura(numero):
         conn.close()
 
 
-# 4. ELIMINAR / ANULAR FACTURA (SOFT DELETE CON REINTEGRO AUTOMÁTICO)
+# 4. ANULAR FACTURA INDIVIDUAL (REGLA SRI: SIN DELETE FÍSICO Y CON REINTEGRO AUTOMÁTICO DE STOCK)
 @app.route('/facturacion/eliminar/<numero>', methods=['POST'])
 @login_required
 @roles_requeridos('admin')
@@ -2402,33 +2608,33 @@ def eliminar_factura(numero):
         try:
             cursor = conn.cursor()
             if str(numero).isdigit():
-                cursor.execute('SELECT id, numero, id_estado FROM facturas WHERE id = %s AND activo = TRUE;', (int(numero),))
+                cursor.execute('SELECT id, numero, id_estado FROM facturas WHERE id = %s;', (int(numero),))
             else:
-                cursor.execute('SELECT id, numero, id_estado FROM facturas WHERE numero = %s AND activo = TRUE;', (numero,))
+                cursor.execute('SELECT id, numero, id_estado FROM facturas WHERE numero = %s;', (numero,))
             fac_row = cursor.fetchone()
 
             if not fac_row:
-                flash('La factura no existe o ya fue anulada.', 'warning')
+                flash('La factura no existe.', 'warning')
                 cursor.close()
-                return redirect(url_for('facturacion'))
+                return redirect(request.referrer or url_for('facturacion'))
 
-            fac_id = fac_row[0]
-            fac_num = fac_row[1]
-            estado_previo = int(fac_row[2])
+            fac_id = extraer_columna(fac_row, 'id', 0)
+            fac_num = extraer_columna(fac_row, 'numero', 1)
+            estado_previo = int(extraer_columna(fac_row, 'id_estado', 2, 1))
 
             # Solo reintegrar stock si no estaba ya anulada (3)
             if estado_previo != 3:
                 cursor.execute('SELECT id_producto, cantidad FROM detalle_facturas WHERE id_factura = %s;', (fac_id,))
                 detalles = cursor.fetchall()
                 for d in detalles:
-                    pid = d[0]
-                    cant = d[1]
+                    pid = extraer_columna(d, 'id_producto', 0)
+                    cant = extraer_columna(d, 'cantidad', 1)
                     cursor.execute('UPDATE productos SET stock = stock + %s, modified_by = %s WHERE id = %s;', 
                                    (cant, current_user.usuario, pid))
 
             cursor.execute('''
                 UPDATE facturas 
-                SET activo = FALSE, id_estado = 3, modified_by = %s 
+                SET id_estado = 3, modified_by = %s 
                 WHERE id = %s;
             ''', (current_user.usuario, fac_id))
 
@@ -2441,7 +2647,7 @@ def eliminar_factura(numero):
         finally:
             conn.close()
 
-    return redirect(url_for('facturacion'))
+    return redirect(request.referrer or url_for('facturacion'))
 
 
 # 4.1 ANULACIÓN EN LOTE DE FACTURAS (REGLA TRIBUTARIA SRI: SIN DELETE FÍSICO, REINTEGRO DE STOCK Y AUDITORÍA)
@@ -3618,10 +3824,10 @@ def exportar_auditoria():
         filas = cursor.fetchall()
         cursor.close()
 
-        # Generación en memoria del archivo CSV con BOM UTF-8 (\ufeff) para Microsoft Excel
+        # Generación en memoria del archivo CSV con BOM UTF-8 + instrucción nativa sep=; para Microsoft Excel
         output = io.StringIO()
-        output.write('\ufeff')
-        writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        output.write('\ufeffsep=;\n')
+        writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
 
         # Cabeceras oficiales del reporte
         writer.writerow([

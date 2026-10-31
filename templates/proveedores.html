@@ -4,6 +4,16 @@
 {% block title %}Proveedores | {{ sistema.nombre_sistema }}{% endblock %}
 
 {% block content %}
+<style>
+    .fila-registro-inactivo {
+        background-color: #f8f9fa;
+        opacity: 0.85;
+    }
+</style>
+
+{% set estado_sel = estado_actual if estado_actual is defined else 'activos' %}
+{% set conteos = conteos_estado if conteos_estado is defined else {'activos': total_items, 'inactivos': 0, 'todos': total_items} %}
+
 {% if current_user.rol == 'admin' %}
 <div id="bulkActionsConfig"
      data-bulk-endpoint="{{ url_for('eliminar_proveedores_masivo') }}"
@@ -19,7 +29,15 @@
             <h2 class="fw-bold text-dark m-0">Proveedores</h2>
         </div>
         <div class="d-flex align-items-center gap-2 gap-sm-3 flex-wrap">
-            <span class="badge bg-info text-dark fs-6 px-3 py-2 rounded-3">Total Activos: {{ total_items }}</span>
+            <span class="badge bg-info text-dark fs-6 px-3 py-2 rounded-3">
+                {% if estado_sel == 'inactivos' %}
+                    Total Inactivos: {{ total_items }}
+                {% elif estado_sel == 'todos' %}
+                    Total Registrados: {{ total_items }}
+                {% else %}
+                    Total Activos: {{ total_items }}
+                {% endif %}
+            </span>
             {% if current_user.rol in ['admin', 'operador'] %}
             <a href="{{ url_for('formulario_proveedor') }}" class="btn btn-info text-dark fw-semibold px-3 py-2 rounded-3 text-nowrap shadow-sm">
                 <i class="bi bi-truck me-1"></i> Nuevo Proveedor
@@ -28,10 +46,38 @@
         </div>
     </div>
 
+    <!-- Pestañas de Estado y Leyenda de Integridad Operativa -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <div class="btn-group shadow-sm rounded-3 bg-white p-1 border" role="group" aria-label="Filtro de estado de proveedores">
+            <a href="{{ url_for('proveedores', estado='activos', q=q if q else None) }}"
+               class="btn btn-sm rounded-2 fw-semibold px-3 py-2 {% if estado_sel == 'activos' %}btn-primary shadow-sm{% else %}btn-light text-secondary{% endif %}">
+                <i class="bi bi-check-circle me-1"></i> Activos
+                <span class="badge {% if estado_sel == 'activos' %}bg-white text-primary{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1 rounded-pill">{{ conteos.activos }}</span>
+            </a>
+            <a href="{{ url_for('proveedores', estado='inactivos', q=q if q else None) }}"
+               class="btn btn-sm rounded-2 fw-semibold px-3 py-2 {% if estado_sel == 'inactivos' %}btn-secondary shadow-sm{% else %}btn-light text-secondary{% endif %}">
+                <i class="bi bi-archive me-1"></i> Inactivos / Archivados
+                <span class="badge {% if estado_sel == 'inactivos' %}bg-white text-dark{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1 rounded-pill">{{ conteos.inactivos }}</span>
+            </a>
+            <a href="{{ url_for('proveedores', estado='todos', q=q if q else None) }}"
+               class="btn btn-sm rounded-2 fw-semibold px-3 py-2 {% if estado_sel == 'todos' %}btn-dark shadow-sm{% else %}btn-light text-secondary{% endif %}">
+                <i class="bi bi-collection me-1"></i> Todos
+                <span class="badge {% if estado_sel == 'todos' %}bg-white text-dark{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1 rounded-pill">{{ conteos.todos }}</span>
+            </a>
+        </div>
+        <small class="text-muted">
+            <i class="bi bi-shield-lock me-1 text-primary"></i>
+            Integridad operativa activa: Los proveedores con compras o productos vinculados no pueden eliminarse físicamente; utilice <strong>Archivar / Desactivar</strong>.
+        </small>
+    </div>
+
     <!-- Barra de Búsqueda con Envío Automático -->
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-3">
             <form id="formBusquedaProveedores" method="GET" action="{{ url_for('proveedores') }}" class="row g-2 align-items-center">
+                {% if estado_sel != 'activos' %}
+                <input type="hidden" name="estado" value="{{ estado_sel }}">
+                {% endif %}
                 <div class="col-md-6 col-lg-5">
                     <div class="input-group">
                         <span class="input-group-text bg-light border-end-0 text-muted">
@@ -45,7 +91,7 @@
                                value="{{ q }}" 
                                autocomplete="off">
                         {% if q %}
-                        <a href="{{ url_for('proveedores') }}" class="btn btn-outline-secondary border-start-0" title="Limpiar búsqueda">
+                        <a href="{{ url_for('proveedores', estado=estado_sel if estado_sel != 'activos' else None) }}" class="btn btn-outline-secondary border-start-0" title="Limpiar búsqueda">
                             <i class="bi bi-x-lg"></i>
                         </a>
                         {% endif %}
@@ -79,19 +125,21 @@
                         <th>Teléfono</th>
                         <th>Categoría</th>
                         <th>Ciudad</th>
+                        <th>Estado</th>
                         <th class="text-end pe-4">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in proveedores %}
-                    <tr>
+                    {% set es_activo = p.activo if (p is mapping and 'activo' in p) else True %}
+                    <tr class="{% if not es_activo %}fila-registro-inactivo{% endif %}">
                         {% if current_user.rol == 'admin' %}
                         <td class="ps-4">
                             <input type="checkbox" class="form-check-input bulk-check" value="{{ p.id }}" title="Seleccionar proveedor #{{ p.id }}">
                         </td>
                         {% endif %}
                         <td class="{% if current_user.rol != 'admin' %}ps-4{% endif %} fw-bold text-secondary">#{{ p.id }}</td>
-                        <td class="fw-semibold text-dark">{{ p.nombre }}</td>
+                        <td class="fw-semibold {% if es_activo %}text-dark{% else %}text-muted{% endif %}">{{ p.nombre }}</td>
                         <td>{{ p.contacto if p.contacto else '<span class="text-muted fst-italic">No asignado</span>'|safe }}</td>
                         <td>{{ p.telefono }}</td>
                         <td>
@@ -100,24 +148,48 @@
                         <td>
                             <span class="badge bg-secondary rounded-2 px-2 py-1">{{ p.ciudad if p.ciudad else 'No asignada' }}</span>
                         </td>
+                        <td>
+                            {% if es_activo %}
+                                <span class="badge bg-success rounded-pill px-2 py-1">Activo</span>
+                            {% else %}
+                                <span class="badge bg-secondary rounded-pill px-2 py-1">
+                                    <i class="bi bi-archive-fill me-1"></i>Inactivo
+                                </span>
+                            {% endif %}
+                        </td>
                         <td class="text-end pe-4 text-nowrap">
                             <div class="btn-group btn-group-sm" role="group">
                                 <a href="{{ url_for('editar_proveedor', id=p.id) }}" class="btn btn-outline-warning" title="Editar">
                                     <i class="bi bi-pencil-square"></i> Editar
                                 </a>
                                 {% if current_user.rol == 'admin' %}
-                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarProv{{ p.id }}" title="Dar de baja">
-                                    <i class="bi bi-trash"></i> Eliminar
-                                </button>
+                                    {% if es_activo %}
+                                    <form action="{{ url_for('cambiar_estado_proveedor', id=p.id) }}" method="POST" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm rounded-0" title="Archivar / Desactivar proveedor">
+                                            <i class="bi bi-archive"></i> Archivar/Desactivar
+                                        </button>
+                                    </form>
+                                    {% else %}
+                                    <form action="{{ url_for('cambiar_estado_proveedor', id=p.id) }}" method="POST" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <button type="submit" class="btn btn-outline-success btn-sm fw-semibold rounded-0" title="Reactivar proveedor">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Reactivar
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalEliminarProv{{ p.id }}" title="Eliminar físicamente">
+                                        <i class="bi bi-trash"></i> Eliminar
+                                    </button>
                                 {% endif %}
                             </div>
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{% if current_user.rol == 'admin' %}8{% else %}7{% endif %}" class="text-center py-5 text-muted">
+                        <td colspan="{% if current_user.rol == 'admin' %}9{% else %}8{% endif %}" class="text-center py-5 text-muted">
                             <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
-                            No se encontraron proveedores activos con los criterios ingresados.
+                            No se encontraron proveedores con los criterios ingresados.
                         </td>
                     </tr>
                     {% endfor %}
@@ -130,7 +202,7 @@
     </div>
 </div>
 
-<!-- Modales de Confirmación de Baja de Proveedor -->
+<!-- Modales de Confirmación de Eliminación de Proveedor -->
 {% if current_user.rol == 'admin' %}
     {% for p in proveedores %}
     <div class="modal fade" id="modalEliminarProv{{ p.id }}" tabindex="-1" aria-labelledby="modalLabelProv{{ p.id }}" aria-hidden="true">
@@ -138,14 +210,17 @@
             <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
                 <div class="modal-header bg-danger text-white">
                     <h5 class="modal-title fw-bold" id="modalLabelProv{{ p.id }}">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Confirmar Eliminación Definitiva
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body py-4">
-                    <p class="mb-1 text-secondary">¿Está seguro de que desea retirar del sistema al siguiente proveedor?</p>
-                    <p class="fw-bold text-dark fs-5 mb-1">#{{ p.id }} - {{ p.nombre }}</p>
-                    <small class="text-muted">El proveedor dejará de figurar en el directorio activo de compras y suministros.</small>
+                    <p class="mb-1 text-secondary">¿Está seguro de que desea eliminar permanentemente al siguiente proveedor?</p>
+                    <p class="fw-bold text-dark fs-5 mb-2">#{{ p.id }} - {{ p.nombre }}</p>
+                    <div class="alert alert-warning border-0 rounded-3 small mb-0">
+                        <i class="bi bi-shield-exclamation me-1"></i>
+                        <strong>Integridad Operativa:</strong> Si el proveedor posee productos o suministros vinculados, la eliminación física será bloqueada. Para retirarlo del directorio activo, utilice <strong>Archivar/Desactivar</strong>.
+                    </div>
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-secondary px-3 rounded-3" data-bs-dismiss="modal">Cancelar</button>
