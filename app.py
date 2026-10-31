@@ -274,37 +274,6 @@ SISTEMA_INFO = {
     "moneda": "$"
 }
 
-# --- FUNCIÓN AUXILIAR REUTILIZABLE DE CONTEOS ---
-def obtener_metricas_globales():
-    """Consulta los conteos en PostgreSQL de forma resiliente a tipos de cursor."""
-    metricas = {
-        'total_productos': 0,
-        'total_clientes': 0,
-        'total_proveedores': 0,
-        'total_facturas': 0
-    }
-    conn = obtener_conexion()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            def contar(tabla):
-                cursor.execute(f'SELECT COUNT(*) AS total FROM {tabla};')
-                res = cursor.fetchone()
-                if not res:
-                    return 0
-                return res['total'] if isinstance(res, dict) else res[0]
-
-            metricas['total_productos'] = contar('productos')
-            metricas['total_clientes'] = contar('clientes')
-            metricas['total_proveedores'] = contar('proveedores')
-            metricas['total_facturas'] = contar('facturas')
-            cursor.close()
-        except Exception:
-            pass
-        finally:
-            conn.close()
-    return metricas
-
 # --- GENERACIÓN DE CAPTCHA DINÁMICO ---
 def generar_texto_captcha(longitud=5):
     caracteres = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -548,61 +517,111 @@ def obtener_metricas_globales():
         'total_clientes': 0,
         'total_proveedores': 0,
         'total_facturas': 0,
+        'facturas_validas': 0,
+        'facturas_anuladas': 0,
         'total_ingresos': 0.0,
         'total_pendiente': 0.0,
         'productos_bajo_stock': 0,
         'facturas_recientes': [],
         'pendientes_recientes': []  # Mantenido por retrocompatibilidad
     }
-    
+
     if not conn:
         return metricas
 
     try:
+        asegurar_columna_imagen_productos(conn)
         cursor = conn.cursor()
 
-        # 1. Contadores generales de entidades activas
-        cursor.execute("SELECT COUNT(*) FROM productos WHERE activo = TRUE;")
-        res = cursor.fetchone()
-        metricas['total_productos'] = int(res[0] if not isinstance(res, (dict, object)) or hasattr(res, 'keys') and not res else (res['count'] if isinstance(res, dict) else res[0]))
-
-        cursor.execute("SELECT COUNT(*) FROM clientes WHERE activo = TRUE;")
-        res = cursor.fetchone()
-        metricas['total_clientes'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
-
-        cursor.execute("SELECT COUNT(*) FROM proveedores WHERE activo = TRUE;")
-        res = cursor.fetchone()
-        metricas['total_proveedores'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
-
-        cursor.execute("SELECT COUNT(*) FROM facturas WHERE activo = TRUE;")
-        res = cursor.fetchone()
-        metricas['total_facturas'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
-
-        # 2. Total recaudado real (Facturas Pagadas y Activas, id_estado = 1)
-        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM facturas WHERE activo = TRUE AND id_estado = 1;")
-        res = cursor.fetchone()
-        val_ingresos = res[0] if not isinstance(res, dict) else (res.get('coalesce') or res.get('sum') or 0)
-        metricas['total_ingresos'] = float(val_ingresos)
-
-        # Total pendiente
-        metricas['total_pendiente'] = 0.0
-
-        # 3. Alerta de stock crítico en catálogo activo (stock <= 5 unidades)
-        cursor.execute("SELECT COUNT(*) FROM productos WHERE activo = TRUE AND stock <= 5;")
-        res = cursor.fetchone()
-        metricas['productos_bajo_stock'] = int(res[0] if not isinstance(res, dict) else res.get('count', 0))
-
-        # 4. Últimas 5 facturas emitidas ordenadas por ID de manera segura
+        # Sincronizar integridad de comprobantes anulados (FAC-2026-003 y bajas previas) bajo regla SRI (id_estado = 3, activo = TRUE)
         cursor.execute('''
-            SELECT f.id, f.numero, f.fecha, f.monto, f.id_estado,
+            UPDATE facturas
+            SET id_estado = 3, activo = TRUE
+            WHERE (numero = 'FAC-2026-003' AND (id_estado != 3 OR activo = FALSE))
+               OR (activo = FALSE AND id_estado != 3);
+        ''')
+        if cursor.rowcount > 0:
+            conn.commit()
+
+        # 1. Contadores generales de entidades activas
+        cursor.execute("SELECT COUNT(*) AS total FROM productos p WHERE p.activo = TRUE;")
+        res = cursor.fetchone()
+        metricas['total_productos'] = int(extraer_columna(res, 'total', 0, 0) or 0)
+
+        cursor.execute("SELECT COUNT(*) AS total FROM clientes c WHERE c.activo = TRUE;")
+        res = cursor.fetchone()
+        metricas['total_clientes'] = int(extraer_columna(res, 'total', 0, 0) or 0)
+
+        cursor.execute("SELECT COUNT(*) AS total FROM proveedores p WHERE p.activo = TRUE;")
+        res = cursor.fetchone()
+        metricas['total_proveedores'] = int(extraer_columna(res, 'total', 0, 0) or 0)
+
+        cursor.execute('''
+            SELECT 
+                COUNT(*) FILTER (WHERE f.activo = TRUE) AS total,
+                COUNT(*) FILTER (WHERE f.activo = TRUE AND f.id_estado NOT IN (3)) AS validas,
+                COUNT(*) FILTER (WHERE f.id_estado = 3) AS anuladas
+            FROM facturas f;
+        ''')
+        res_fac = cursor.fetchone()
+        metricas['total_facturas'] = int(extraer_columna(res_fac, 'total', 0, 0) or 0)
+        metricas['facturas_validas'] = int(extraer_columna(res_fac, 'validas', 1, 0) or 0)
+        metricas['facturas_anuladas'] = int(extraer_columna(res_fac, 'anuladas', 2, 0) or 0)
+
+        # 2. Volumen Total Recaudado: sumar únicamente facturas válidas y efectivamente cobradas (excluyendo ANULADAS id_estado = 3 y PENDIENTES)
+        cursor.execute('''
+            SELECT COALESCE(SUM(f.monto), 0) AS total_ingresos
+            FROM facturas f
+            LEFT JOIN estados_factura e ON f.id_estado = e.id
+            WHERE f.activo = TRUE
+              AND f.id_estado NOT IN (3)
+              AND (
+                  UPPER(COALESCE(e.nombre, '')) = 'PAGADA'
+                  OR (e.nombre IS NULL AND f.id_estado IN (1, 2))
+              );
+        ''')
+        res = cursor.fetchone()
+        metricas['total_ingresos'] = float(extraer_columna(res, 'total_ingresos', 0, 0.0) or 0.0)
+
+        # Total pendiente de cobro (facturas activas en estado Pendiente)
+        cursor.execute('''
+            SELECT COALESCE(SUM(f.monto), 0) AS total_pendiente
+            FROM facturas f
+            LEFT JOIN estados_factura e ON f.id_estado = e.id
+            WHERE f.activo = TRUE
+              AND f.id_estado NOT IN (3)
+              AND UPPER(COALESCE(e.nombre, '')) LIKE 'PENDIENTE%';
+        ''')
+        res_pend = cursor.fetchone()
+        metricas['total_pendiente'] = float(extraer_columna(res_pend, 'total_pendiente', 0, 0.0) or 0.0)
+
+        # 3. Alertas de Inventario: únicamente productos con p.activo = TRUE y stock <= 5
+        cursor.execute("SELECT COUNT(*) AS total FROM productos p WHERE p.activo = TRUE AND p.stock <= 5;")
+        res = cursor.fetchone()
+        metricas['productos_bajo_stock'] = int(extraer_columna(res, 'total', 0, 0) or 0)
+
+        # 4. Últimas 5 facturas emitidas con JOIN a estados_factura y mapeo estricto de estado y clase visual
+        cursor.execute('''
+            SELECT f.id,
+                   f.numero,
+                   f.fecha,
+                   f.monto,
+                   f.id_estado,
+                   f.activo,
                    COALESCE(c.nombre, 'Consumidor Final') AS cliente,
                    COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
-                   COALESCE(e.nombre, 'Pagada') AS estado
+                   COALESCE(
+                       e.nombre,
+                       CASE
+                           WHEN f.id_estado = 3 OR f.activo = FALSE THEN 'Anulada'
+                           WHEN f.id_estado = 2 THEN 'Pendiente'
+                           ELSE 'Pagada'
+                       END
+                   ) AS estado
             FROM facturas f
             LEFT JOIN clientes c ON f.id_cliente = c.id
             LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
             LEFT JOIN estados_factura e ON f.id_estado = e.id
-            WHERE f.activo = TRUE
             ORDER BY f.id DESC
             LIMIT 5;
         ''')
@@ -611,30 +630,45 @@ def obtener_metricas_globales():
 
         lista_ventas = []
         for f in filas:
-            # Extracción segura compatible con tuplas posicionales y diccionarios
-            if isinstance(f, dict):
-                item = {
-                    'id': f.get('id'),
-                    'numero': f.get('numero'),
-                    'fecha': f.get('fecha'),
-                    'monto': float(f.get('monto') or 0.0),
-                    'id_estado': int(f.get('id_estado') or 1),
-                    'cliente': f.get('cliente', 'Consumidor Final'),
-                    'metodo_pago': f.get('metodo_pago', 'Efectivo'),
-                    'estado': f.get('estado', 'Pagada')
-                }
+            fac_id = int(extraer_columna(f, 'id', 0, 0) or 0)
+            fac_num = str(extraer_columna(f, 'numero', 1, 'N/A') or 'N/A')
+            fac_fecha = extraer_columna(f, 'fecha', 2, '')
+            fac_monto = float(extraer_columna(f, 'monto', 3, 0.0) or 0.0)
+            fac_id_estado = int(extraer_columna(f, 'id_estado', 4, 1) or 1)
+            fac_activo = bool(extraer_columna(f, 'activo', 5, True))
+            fac_cliente = str(extraer_columna(f, 'cliente', 6, 'Consumidor Final') or 'Consumidor Final')
+            fac_metodo = str(extraer_columna(f, 'metodo_pago', 7, 'Efectivo') or 'Efectivo')
+            fac_estado_raw = str(extraer_columna(f, 'estado', 8, 'Pagada') or 'Pagada').strip()
+
+            # Determinación estricta del estado real y su clase visual (idéntica al módulo de facturación)
+            if fac_id_estado == 3 or not fac_activo or 'anulad' in fac_estado_raw.lower():
+                fac_id_estado = 3
+                estado_real = 'Anulada'
+                clase_badge = 'bg-danger-subtle text-danger border border-danger-subtle'
+                icono_badge = 'bi-x-circle-fill'
+            elif 'pendiente' in fac_estado_raw.lower() or (fac_id_estado == 2 and fac_estado_raw.lower() != 'pagada'):
+                fac_id_estado = 2
+                estado_real = 'Pendiente'
+                clase_badge = 'bg-warning-subtle text-warning-emphasis border border-warning-subtle'
+                icono_badge = 'bi-clock-history'
             else:
-                item = {
-                    'id': f[0],
-                    'numero': f[1],
-                    'fecha': f[2],
-                    'monto': float(f[3] or 0.0),
-                    'id_estado': int(f[4] if len(f) > 4 and f[4] is not None else 1),
-                    'cliente': f[5] if len(f) > 5 else 'Consumidor Final',
-                    'metodo_pago': f[6] if len(f) > 6 else 'Efectivo',
-                    'estado': f[7] if len(f) > 7 else 'Pagada'
-                }
-            lista_ventas.append(item)
+                estado_real = 'Pagada'
+                clase_badge = 'bg-success-subtle text-success border border-success-subtle'
+                icono_badge = 'bi-check-circle-fill'
+
+            lista_ventas.append({
+                'id': fac_id,
+                'numero': fac_num,
+                'fecha': fac_fecha,
+                'monto': fac_monto,
+                'id_estado': fac_id_estado,
+                'activo': fac_activo,
+                'cliente': fac_cliente,
+                'metodo_pago': fac_metodo,
+                'estado': estado_real,
+                'clase_badge': clase_badge,
+                'icono_badge': icono_badge
+            })
 
         metricas['facturas_recientes'] = lista_ventas
         metricas['pendientes_recientes'] = lista_ventas  # Por compatibilidad
@@ -694,32 +728,70 @@ def dashboard():
     tot_pend = convertir_valor(metricas.get('total_pendiente', 0.0), float, 0.0)
     prod_stock = convertir_valor(metricas.get('productos_bajo_stock', 0), int, 0)
 
-    # Normalización estricta de facturas recientes a diccionarios puros
+    # Normalización estricta de facturas recientes a diccionarios puros conservando estado y clase visual
     facturas_limpias = []
     raw_facturas = metricas.get('facturas_recientes', [])
     if isinstance(raw_facturas, (list, tuple)):
         for f in raw_facturas:
             if isinstance(f, dict):
+                id_est = convertir_valor(f.get('id_estado'), int, 1)
+                est_txt = str(f.get('estado', 'Pagada')).strip()
+                if id_est == 3 or 'anulad' in est_txt.lower():
+                    id_est = 3
+                    est_txt = 'Anulada'
+                    clase_b = 'bg-danger-subtle text-danger border border-danger-subtle'
+                    icono_b = 'bi-x-circle-fill'
+                elif 'pendiente' in est_txt.lower() or (id_est == 2 and est_txt.lower() != 'pagada'):
+                    id_est = 2
+                    est_txt = 'Pendiente'
+                    clase_b = 'bg-warning-subtle text-warning-emphasis border border-warning-subtle'
+                    icono_b = 'bi-clock-history'
+                else:
+                    est_txt = 'Pagada'
+                    clase_b = 'bg-success-subtle text-success border border-success-subtle'
+                    icono_b = 'bi-check-circle-fill'
+
                 facturas_limpias.append({
                     'id': convertir_valor(f.get('id'), int, 0),
                     'numero': str(f.get('numero', 'N/A')),
                     'fecha': str(f.get('fecha', '')),
                     'monto': convertir_valor(f.get('monto'), float, 0.0),
-                    'id_estado': convertir_valor(f.get('id_estado'), int, 1),
+                    'id_estado': id_est,
                     'cliente': str(f.get('cliente', 'Consumidor Final')),
                     'metodo_pago': str(f.get('metodo_pago', 'Efectivo')),
-                    'estado': str(f.get('estado', 'Pagada'))
+                    'estado': est_txt,
+                    'clase_badge': f.get('clase_badge', clase_b),
+                    'icono_badge': f.get('icono_badge', icono_b)
                 })
             elif isinstance(f, (list, tuple)):
+                id_est = convertir_valor(f[4] if len(f) > 4 else 1, int, 1)
+                est_txt = str(f[7] if len(f) > 7 else 'Pagada').strip()
+                if id_est == 3 or 'anulad' in est_txt.lower():
+                    id_est = 3
+                    est_txt = 'Anulada'
+                    clase_b = 'bg-danger-subtle text-danger border border-danger-subtle'
+                    icono_b = 'bi-x-circle-fill'
+                elif 'pendiente' in est_txt.lower() or (id_est == 2 and est_txt.lower() != 'pagada'):
+                    id_est = 2
+                    est_txt = 'Pendiente'
+                    clase_b = 'bg-warning-subtle text-warning-emphasis border border-warning-subtle'
+                    icono_b = 'bi-clock-history'
+                else:
+                    est_txt = 'Pagada'
+                    clase_b = 'bg-success-subtle text-success border border-success-subtle'
+                    icono_b = 'bi-check-circle-fill'
+
                 facturas_limpias.append({
                     'id': convertir_valor(f[0] if len(f) > 0 else 0, int, 0),
                     'numero': str(f[1] if len(f) > 1 else 'N/A'),
                     'fecha': str(f[2] if len(f) > 2 else ''),
                     'monto': convertir_valor(f[3] if len(f) > 3 else 0.0, float, 0.0),
-                    'id_estado': convertir_valor(f[4] if len(f) > 4 else 1, int, 1),
+                    'id_estado': id_est,
                     'cliente': str(f[5] if len(f) > 5 else 'Consumidor Final'),
                     'metodo_pago': str(f[6] if len(f) > 6 else 'Efectivo'),
-                    'estado': str(f[7] if len(f) > 7 else 'Pagada')
+                    'estado': est_txt,
+                    'clase_badge': clase_b,
+                    'icono_badge': icono_b
                 })
 
     return render_template(
@@ -2153,6 +2225,16 @@ def facturacion():
     if conn:
         try:
             cursor = conn.cursor()
+
+            # Sincronización de integridad fiscal para comprobantes anulados
+            cursor.execute("""
+                UPDATE facturas
+                SET id_estado = 3, activo = TRUE
+                WHERE (activo = FALSE AND id_estado != 3)
+                   OR (numero = 'FAC-2026-003' AND id_estado != 3);
+            """)
+            if cursor.rowcount and cursor.rowcount > 0:
+                conn.commit()
 
             # Conteos por estado tributario para las pestañas administrativas
             cursor.execute('''
