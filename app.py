@@ -3445,8 +3445,7 @@ def asegurar_esquema_notas_credito(conn):
                 id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
                 fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
                 motivo_modificacion TEXT NOT NULL,
-                subtotal_15 NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-                subtotal_0 NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 estado VARCHAR(20) NOT NULL DEFAULT 'AUTORIZADA',
@@ -3745,7 +3744,8 @@ def emitir_nota_credito(id_factura):
             cols_nc = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
 
             col_motivo_nc = 'motivo_modificacion' if 'motivo_modificacion' in cols_nc else 'motivo'
-            columnas_insert = ['numero_comprobante', 'id_factura', 'id_cliente', col_motivo_nc, 'subtotal_15', 'iva', 'total']
+            col_subtotal_nc = 'subtotal' if 'subtotal' in cols_nc else 'subtotal_15'
+            columnas_insert = ['numero_comprobante', 'id_factura', 'id_cliente', col_motivo_nc, col_subtotal_nc, 'iva', 'total']
             valores_insert = [numero_nc, fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum]
 
             if 'id_usuario' in cols_nc:
@@ -3887,7 +3887,7 @@ def notas_credito():
                        COALESCE(c.ruc, 'S/RUC') AS cliente_ruc,
                        nc.fecha_emision,
                        nc.motivo_modificacion AS motivo,
-                       nc.subtotal_15,
+                       nc.subtotal,
                        nc.iva,
                        nc.total,
                        COALESCE((
@@ -3914,6 +3914,7 @@ def notas_credito():
             for r in filas:
                 fecha_raw = extraer_columna(r, 'fecha_emision', 6)
                 fecha_str = fecha_raw.strftime('%Y-%m-%d') if hasattr(fecha_raw, 'strftime') else str(fecha_raw or '')
+                subtotal_val = float(extraer_columna(r, 'subtotal', 8, 0.0) or 0.0)
                 lista_nc.append({
                     'id': int(extraer_columna(r, 'id', 0)),
                     'numero_comprobante': str(extraer_columna(r, 'numero_comprobante', 1, '')),
@@ -3923,7 +3924,8 @@ def notas_credito():
                     'ruc': str(extraer_columna(r, 'cliente_ruc', 5, '')),
                     'fecha': fecha_str,
                     'motivo': str(extraer_columna(r, 'motivo', 7, '')),
-                    'subtotal_15': float(extraer_columna(r, 'subtotal_15', 8, 0.0) or 0.0),
+                    'subtotal': subtotal_val,
+                    'subtotal_15': subtotal_val,
                     'iva': float(extraer_columna(r, 'iva', 9, 0.0) or 0.0),
                     'total': float(extraer_columna(r, 'total', 10, 0.0) or 0.0),
                     'estado': 'AUTORIZADA',
@@ -3976,8 +3978,7 @@ def descargar_nota_credito(id_nc):
                    f.fecha AS factura_fecha,
                    nc.fecha_emision,
                    nc.motivo_modificacion AS motivo,
-                   nc.subtotal_15,
-                   0.00 AS subtotal_0,
+                   nc.subtotal,
                    nc.iva,
                    nc.total,
                    COALESCE(c.nombre, 'Consumidor Final') AS cliente,
@@ -3994,6 +3995,7 @@ def descargar_nota_credito(id_nc):
             flash('Nota de Crédito no encontrada.', 'warning')
             return redirect(url_for('notas_credito'))
 
+        subtotal_nc = float(extraer_columna(fila_nc, 'subtotal', 7, 0.0) or 0.0)
         nc_dict = {
             'id': extraer_columna(fila_nc, 'id', 0),
             'numero_comprobante': extraer_columna(fila_nc, 'numero_comprobante', 1),
@@ -4002,14 +4004,15 @@ def descargar_nota_credito(id_nc):
             'factura_fecha': extraer_columna(fila_nc, 'factura_fecha', 4),
             'fecha_emision': extraer_columna(fila_nc, 'fecha_emision', 5),
             'motivo': extraer_columna(fila_nc, 'motivo', 6),
-            'subtotal_15': float(extraer_columna(fila_nc, 'subtotal_15', 7, 0.0) or 0.0),
-            'subtotal_0': float(extraer_columna(fila_nc, 'subtotal_0', 8, 0.0) or 0.0),
-            'iva': float(extraer_columna(fila_nc, 'iva', 9, 0.0) or 0.0),
-            'total': float(extraer_columna(fila_nc, 'total', 10, 0.0) or 0.0),
-            'cliente': extraer_columna(fila_nc, 'cliente', 11),
-            'ruc': extraer_columna(fila_nc, 'ruc', 12),
-            'email': extraer_columna(fila_nc, 'email', 13),
-            'telefono': extraer_columna(fila_nc, 'telefono', 14)
+            'subtotal': subtotal_nc,
+            'subtotal_15': subtotal_nc,
+            'subtotal_0': 0.0,
+            'iva': float(extraer_columna(fila_nc, 'iva', 8, 0.0) or 0.0),
+            'total': float(extraer_columna(fila_nc, 'total', 9, 0.0) or 0.0),
+            'cliente': extraer_columna(fila_nc, 'cliente', 10),
+            'ruc': extraer_columna(fila_nc, 'ruc', 11),
+            'email': extraer_columna(fila_nc, 'email', 12),
+            'telefono': extraer_columna(fila_nc, 'telefono', 13)
         }
 
         cursor.execute('''
