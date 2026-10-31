@@ -3444,6 +3444,7 @@ def asegurar_esquema_notas_credito(conn):
                 secuencial VARCHAR(9) NOT NULL,
                 numero_comprobante VARCHAR(30) GENERATED ALWAYS AS (establecimiento || '-' || punto_emision || '-' || secuencial) STORED UNIQUE,
                 id_factura INT NOT NULL REFERENCES public.facturas(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                numero_factura_modificada VARCHAR(30) NOT NULL,
                 id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
                 fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -3740,6 +3741,13 @@ def emitir_nota_credito(id_factura):
             row_sec = cursor.fetchone()
             siguiente_secuencial = str(extraer_columna(row_sec, 'siguiente_secuencial', 0, '000000001') or '000000001')
 
+            # 2. Obtener el número de comprobante de la factura original modificada
+            numero_factura_modificada = str(fac_numero or '').strip()
+            if not numero_factura_modificada:
+                cursor.execute("SELECT numero FROM public.facturas WHERE id = %s;", (fac_id,))
+                row_fac_num = cursor.fetchone()
+                numero_factura_modificada = str(extraer_columna(row_fac_num, 'numero', 0, '') or '').strip()
+
             # Detectar columnas existentes en public.notas_credito para inserción segura
             cursor.execute("""
                 SELECT column_name
@@ -3752,13 +3760,18 @@ def emitir_nota_credito(id_factura):
             col_subtotal_nc = 'subtotal' if 'subtotal' in cols_nc else 'subtotal_15'
             columnas_insert = [
                 'establecimiento', 'punto_emision', 'secuencial',
-                'id_factura', 'id_cliente', col_motivo_nc, col_subtotal_nc, 'iva', 'total'
+                'id_factura', 'numero_factura_modificada', 'id_cliente',
+                col_motivo_nc, col_subtotal_nc, 'iva', 'total'
             ]
             valores_insert = [
                 '001', '001', siguiente_secuencial,
-                fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum
+                fac_id, numero_factura_modificada, fac_id_cliente,
+                motivo_final, subtotal_15_acum, iva_acum, total_acum
             ]
 
+            if 'fecha_factura_modificada' in cols_nc:
+                columnas_insert.append('fecha_factura_modificada')
+                valores_insert.append(fac_fecha)
             if 'id_usuario' in cols_nc:
                 columnas_insert.append('id_usuario')
                 valores_insert.append(int(current_user.id))
