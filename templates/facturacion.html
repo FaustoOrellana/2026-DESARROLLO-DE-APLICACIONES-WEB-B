@@ -144,8 +144,11 @@
                     {% set fac_metodo = f.metodo_pago if f is mapping else f[7] %}
                     {% set fac_articulos = f.total_articulos if f is mapping else f[8] %}
                     {% set fac_resumen = f.resumen_items if f is mapping else f[9] %}
+                    {% set fac_total_nc = (f.total_notas_credito if f is mapping else (f[10] if f|length > 10 else 0.0))|default(0.0)|float %}
+                    {% set fac_saldo_real = (f.saldo_real if f is mapping else (f[11] if f|length > 11 else fac_monto))|default(fac_monto)|float %}
+                    {% set fac_estado_nc = (f.estado_nc if f is mapping else (f[12] if f|length > 12 else 'SIN_NC'))|default('SIN_NC') %}
                     {% set es_anulada = (fac_estado_id == 3 or fac_estado|lower == 'anulada') %}
-                    <tr class="{% if es_anulada %}fila-factura-anulada{% endif %}">
+                    <tr class="{% if es_anulada or fac_estado_nc == 'ANULADA_TOTAL' %}fila-factura-anulada{% endif %}">
                         {% if current_user.rol == 'admin' %}
                         <td class="ps-4">
                             <input type="checkbox"
@@ -175,7 +178,17 @@
                                 <i class="bi bi-wallet2 text-primary me-1"></i> {{ fac_metodo or 'Efectivo' }}
                             </span>
                         </td>
-                        <td class="fw-bold {% if es_anulada %}text-muted{% else %}text-dark{% endif %}">${{ "%.2f"|format(fac_monto|float) }}</td>
+                        <td>
+                            {% if fac_estado_nc == 'ANULADA_TOTAL' %}
+                                <span class="text-muted text-decoration-line-through small d-block">${{ "%.2f"|format(fac_monto|float) }}</span>
+                                <span class="fw-bold text-secondary font-monospace">$0.00</span>
+                            {% elif fac_estado_nc == 'MODIFICADA_PARCIAL' %}
+                                <span class="text-muted text-decoration-line-through small d-block">${{ "%.2f"|format(fac_monto|float) }}</span>
+                                <span class="fw-bold text-dark font-monospace">Saldo Real: ${{ "%.2f"|format(fac_saldo_real) }}</span>
+                            {% else %}
+                                <span class="fw-bold {% if es_anulada %}text-muted{% else %}text-dark{% endif %}">${{ "%.2f"|format(fac_monto|float) }}</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if fac_estado|lower == 'pagada' and not es_anulada %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 fw-semibold">
@@ -190,6 +203,20 @@
                                     <i class="bi bi-x-circle-fill me-1"></i> Anulada
                                 </span>
                             {% endif %}
+
+                            {% if fac_estado_nc == 'ANULADA_TOTAL' %}
+                                <div class="mt-1">
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1 fw-semibold" style="font-size: 0.72rem;">
+                                        <i class="bi bi-arrow-return-left me-1"></i>DEVUELTA TOTAL ($0.00 pendiente)
+                                    </span>
+                                </div>
+                            {% elif fac_estado_nc == 'MODIFICADA_PARCIAL' %}
+                                <div class="mt-1">
+                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-1 fw-semibold" style="font-size: 0.72rem;">
+                                        <i class="bi bi-file-earmark-minus me-1"></i>NC APLICADA (-${{ "%.2f"|format(fac_total_nc) }})
+                                    </span>
+                                </div>
+                            {% endif %}
                         </td>
                         <td class="text-end pe-4 text-nowrap">
                             <div class="btn-group btn-group-sm" role="group">
@@ -198,9 +225,15 @@
                                 <a href="{{ url_for('descargar_factura', id_factura=fac_id) }}" class="btn btn-outline-danger" title="Descargar RIDE PDF (SRI)">
                                     <i class="bi bi-file-earmark-pdf-fill"></i>
                                 </a>
+                                {% if fac_estado_nc == 'ANULADA_TOTAL' %}
+                                <button type="button" class="btn btn-outline-secondary opacity-50" disabled title="Sin saldo disponible (Factura devuelta en su totalidad por Nota de Crédito)">
+                                    <i class="bi bi-file-earmark-minus"></i>
+                                </button>
+                                {% else %}
                                 <a href="{{ url_for('emitir_nota_credito', id_factura=fac_id) }}" class="btn btn-outline-primary" title="Emitir Nota de Crédito">
                                     <i class="bi bi-file-earmark-minus"></i>
                                 </a>
+                                {% endif %}
                                 {% else %}
                                 <button type="button" class="btn btn-outline-secondary opacity-50" disabled title="Bloqueado: Solo comprobantes pagados generan RIDE PDF">
                                     <i class="bi bi-file-earmark-pdf"></i>

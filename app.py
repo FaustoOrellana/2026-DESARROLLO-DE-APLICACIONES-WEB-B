@@ -2223,6 +2223,7 @@ def facturacion():
     conteos_estado = {'validas': 0, 'anuladas': 0, 'todas': 0}
 
     if conn:
+        asegurar_esquema_notas_credito(conn)
         try:
             cursor = conn.cursor()
 
@@ -2284,7 +2285,7 @@ def facturacion():
             row_count = cursor.fetchone()
             total_items = int(extraer_columna(row_count, 'total', 0, 0))
 
-            # b) Consulta paginada con consolidación atómica de productos
+            # b) Consulta paginada con consolidación de productos y saldo neto real con Notas de Crédito
             query_datos = f'''
                 SELECT f.id, 
                        f.numero, 
@@ -2295,16 +2296,28 @@ def facturacion():
                        e.nombre AS estado, 
                        COALESCE(mp.nombre, 'Efectivo') AS metodo_pago,
                        COALESCE(SUM(df.cantidad), 0) AS total_articulos,
-                       COALESCE(STRING_AGG(CONCAT(df.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
-                FROM facturas f
-                INNER JOIN clientes c ON f.id_cliente = c.id
-                INNER JOIN estados_factura e ON f.id_estado = e.id
-                LEFT JOIN metodos_pago mp ON f.id_metodo_pago = mp.id
-                LEFT JOIN detalle_facturas df ON df.id_factura = f.id
-                LEFT JOIN productos p ON df.id_producto = p.id
+                       COALESCE(STRING_AGG(CONCAT(df.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items,
+                       ROUND(COALESCE(nc.total_nc, 0.00)::numeric, 2) AS total_notas_credito,
+                       GREATEST(0.00, ROUND((f.monto - COALESCE(nc.total_nc, 0.00))::numeric, 2)) AS saldo_real,
+                       CASE 
+                           WHEN COALESCE(nc.total_nc, 0.00) >= f.monto AND f.monto > 0 THEN 'ANULADA_TOTAL'
+                           WHEN COALESCE(nc.total_nc, 0.00) > 0 THEN 'MODIFICADA_PARCIAL'
+                           ELSE 'SIN_NC'
+                       END AS estado_nc
+                FROM public.facturas f
+                INNER JOIN public.clientes c ON f.id_cliente = c.id
+                INNER JOIN public.estados_factura e ON f.id_estado = e.id
+                LEFT JOIN public.metodos_pago mp ON f.id_metodo_pago = mp.id
+                LEFT JOIN public.detalle_facturas df ON df.id_factura = f.id
+                LEFT JOIN public.productos p ON df.id_producto = p.id
+                LEFT JOIN (
+                    SELECT id_factura, SUM(total) AS total_nc
+                    FROM public.notas_credito
+                    GROUP BY id_factura
+                ) nc ON f.id = nc.id_factura
                 {where_sql}
-                GROUP BY f.id, f.numero, c.nombre, f.fecha, f.monto, f.id_estado, e.nombre, mp.nombre
-                ORDER BY f.id DESC
+                GROUP BY f.id, f.numero, c.nombre, f.fecha, f.monto, f.id_estado, e.nombre, mp.nombre, nc.total_nc
+                ORDER BY f.fecha DESC, f.id DESC
                 LIMIT %s OFFSET %s;
             '''
             params_datos = list(params) + [per_page, offset]
