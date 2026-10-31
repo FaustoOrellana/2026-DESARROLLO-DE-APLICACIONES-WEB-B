@@ -3444,7 +3444,7 @@ def asegurar_esquema_notas_credito(conn):
                 id_cliente INT NOT NULL REFERENCES public.clientes(id) ON UPDATE CASCADE ON DELETE RESTRICT,
                 id_usuario INT NULL REFERENCES public.usuarios(id) ON UPDATE CASCADE ON DELETE SET NULL,
                 fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
-                motivo TEXT NOT NULL,
+                motivo_modificacion TEXT NOT NULL,
                 subtotal_15 NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 subtotal_0 NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
@@ -3744,7 +3744,8 @@ def emitir_nota_credito(id_factura):
             """)
             cols_nc = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
 
-            columnas_insert = ['numero_comprobante', 'id_factura', 'id_cliente', 'motivo', 'subtotal_15', 'iva', 'total']
+            col_motivo_nc = 'motivo_modificacion' if 'motivo_modificacion' in cols_nc else 'motivo'
+            columnas_insert = ['numero_comprobante', 'id_factura', 'id_cliente', col_motivo_nc, 'subtotal_15', 'iva', 'total']
             valores_insert = [numero_nc, fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum]
 
             if 'id_usuario' in cols_nc:
@@ -3860,7 +3861,7 @@ def notas_credito():
                     f.numero ILIKE %s OR
                     c.nombre ILIKE %s OR
                     COALESCE(c.ruc, '') ILIKE %s OR
-                    nc.motivo ILIKE %s
+                    nc.motivo_modificacion ILIKE %s
                 )"""
                 like_q = f"%{q}%"
                 params.extend([like_q, like_q, like_q, like_q, like_q])
@@ -3885,7 +3886,7 @@ def notas_credito():
                        c.nombre AS cliente_nombre,
                        COALESCE(c.ruc, 'S/RUC') AS cliente_ruc,
                        nc.fecha_emision,
-                       nc.motivo,
+                       nc.motivo_modificacion AS motivo,
                        nc.subtotal_15,
                        nc.iva,
                        nc.total,
@@ -3974,7 +3975,7 @@ def descargar_nota_credito(id_nc):
                    f.numero AS factura_numero,
                    f.fecha AS factura_fecha,
                    nc.fecha_emision,
-                   nc.motivo,
+                   nc.motivo_modificacion AS motivo,
                    nc.subtotal_15,
                    0.00 AS subtotal_0,
                    nc.iva,
