@@ -2543,9 +2543,9 @@ def formulario_facturacion():
                     'subtotal': subtotal
                 })
 
-            subtotal_15 = round(total_acumulado, 2)
-            iva_15 = round(subtotal_15 * 0.15, 2)
-            total_con_iva = round(subtotal_15 + iva_15, 2)
+            total_con_iva = round(total_acumulado, 2)
+            subtotal_15 = round(total_con_iva / 1.15, 2)
+            iva_15 = round(total_con_iva - subtotal_15, 2)
 
             # 1. Insertar Cabecera de Factura (incluyendo desglose tributario SRI IVA 15%)
             cursor.execute('''
@@ -2759,9 +2759,9 @@ def editar_factura(numero):
                     cursor.execute('UPDATE productos SET stock = stock + %s WHERE id = %s;', (cant, int(p_id)))
 
             if prod_ids:
-                subtotal_15 = round(total_acumulado, 2)
-                iva_15 = round(subtotal_15 * 0.15, 2)
-                monto_final = round(subtotal_15 + iva_15, 2)
+                monto_final = round(total_acumulado, 2)
+                subtotal_15 = round(monto_final / 1.15, 2)
+                iva_15 = round(monto_final - subtotal_15, 2)
             else:
                 monto_final = float(form.monto.data or 0.0)
                 subtotal_15 = round(monto_final / 1.15, 2)
@@ -3483,14 +3483,14 @@ def asegurar_esquema_notas_credito(conn):
             CREATE OR REPLACE FUNCTION public.fn_reintegrar_stock_nc()
             RETURNS TRIGGER AS $$
             BEGIN
+                IF NEW.total IS NULL OR NEW.total = 0 THEN
+                    NEW.total := ROUND(NEW.cantidad * NEW.precio_unitario, 2);
+                END IF;
                 IF NEW.subtotal IS NULL OR NEW.subtotal = 0 THEN
-                    NEW.subtotal := ROUND(NEW.cantidad * NEW.precio_unitario, 2);
+                    NEW.subtotal := ROUND(NEW.total / 1.15, 2);
                 END IF;
                 IF NEW.iva IS NULL OR NEW.iva = 0 THEN
-                    NEW.iva := ROUND(NEW.subtotal * 0.15, 2);
-                END IF;
-                IF NEW.total IS NULL OR NEW.total = 0 THEN
-                    NEW.total := ROUND(NEW.subtotal + NEW.iva, 2);
+                    NEW.iva := ROUND(NEW.total - NEW.subtotal, 2);
                 END IF;
 
                 UPDATE public.productos
@@ -3670,11 +3670,7 @@ def emitir_nota_credito(id_factura):
             prod_ids_form = request.form.getlist('id_producto[]')
             cantidades_form = request.form.getlist('cantidad_devolver[]')
 
-            lineas_devolucion = []
-            subtotal_15_acum = 0.0
-            subtotal_0_acum = 0.0
-            iva_acum = 0.0
-            total_acum = 0.0
+            items_devueltos = []
 
             for pid_str, cant_str in zip(prod_ids_form, cantidades_form):
                 try:
@@ -3702,25 +3698,22 @@ def emitir_nota_credito(id_factura):
                         sistema=SISTEMA_INFO
                     )
 
-                precio_u = round(float(info_orig['precio_unitario']), 2)
-                sub_linea = round(cant_dev * precio_u, 2)
-                iva_linea = round(sub_linea * 0.15, 2)
-                tot_linea = round(sub_linea + iva_linea, 2)
+                precio_unitario = round(float(info_orig['precio_unitario']), 2)
+                precio_total_item = round(cant_dev * precio_unitario, 2)
+                subtotal_item = round(precio_total_item / 1.15, 2)
+                iva_item = round(precio_total_item - subtotal_item, 2)
+                total_item = precio_total_item
 
-                subtotal_15_acum = round(subtotal_15_acum + sub_linea, 2)
-                iva_acum = round(iva_acum + iva_linea, 2)
-                total_acum = round(total_acum + tot_linea, 2)
-
-                lineas_devolucion.append({
+                items_devueltos.append({
                     'id_producto': pid,
                     'cantidad': cant_dev,
-                    'precio_unitario': precio_u,
-                    'subtotal': sub_linea,
-                    'iva': iva_linea,
-                    'total': tot_linea
+                    'precio_unitario': precio_unitario,
+                    'subtotal_item': subtotal_item,
+                    'iva_item': iva_item,
+                    'total_item': total_item
                 })
 
-            if not lineas_devolucion:
+            if not items_devueltos:
                 flash('Debe ingresar una cantidad a devolver mayor a 0 en al menos un producto facturado.', 'warning')
                 cursor.close()
                 return render_template(
@@ -3754,10 +3747,20 @@ def emitir_nota_credito(id_factura):
             row_sec = cursor.fetchone()
             siguiente_secuencial = str(extraer_columna(row_sec, 'siguiente_secuencial', 0, '000000001') or '000000001')
 
-            # 3. Inserción de la cabecera en public.notas_credito
-            subtotal_devuelto = subtotal_15_acum
-            iva_devuelto = iva_acum
-            total_devuelto = total_acum
+            # 3. Totales de la cabecera en public.notas_credito (sincronizados al centavo con el desglose de la factura)
+            total_devuelto = round(sum(item['total_item'] for item in items_devueltos), 2)
+            if fac_total > 0 and total_devuelto > fac_total:
+                total_devuelto = round(fac_total, 2)
+
+            subtotal_devuelto = round(sum(item['subtotal_item'] for item in items_devueltos), 2)
+            subtotal_factura_equiv = round(total_devuelto / 1.15, 2)
+            if subtotal_devuelto != subtotal_factura_equiv and items_devueltos:
+                ajuste_centavos = round(subtotal_factura_equiv - subtotal_devuelto, 2)
+                items_devueltos[-1]['subtotal_item'] = round(items_devueltos[-1]['subtotal_item'] + ajuste_centavos, 2)
+                items_devueltos[-1]['iva_item'] = round(items_devueltos[-1]['total_item'] - items_devueltos[-1]['subtotal_item'], 2)
+                subtotal_devuelto = round(sum(item['subtotal_item'] for item in items_devueltos), 2)
+
+            iva_devuelto = round(total_devuelto - subtotal_devuelto, 2)
             usuario_actual = session.get('usuario') or getattr(current_user, 'usuario', 'admin')
 
             cursor.execute('''
@@ -3795,7 +3798,7 @@ def emitir_nota_credito(id_factura):
             numero_nc = str(extraer_columna(res_nc, 'numero_comprobante', 1, secuencial_nc) or secuencial_nc)
 
             # 4. Inserción de los ítems en public.detalle_notas_credito (el trigger trg_reintegrar_stock_nc devuelve el stock automáticamente)
-            for item_nc in lineas_devolucion:
+            for item_nc in items_devueltos:
                 cursor.execute('''
                     INSERT INTO public.detalle_notas_credito (
                         id_nota_credito,
@@ -3811,9 +3814,9 @@ def emitir_nota_credito(id_factura):
                     item_nc['id_producto'],
                     item_nc['cantidad'],
                     item_nc['precio_unitario'],
-                    item_nc['subtotal'],
-                    item_nc['iva'],
-                    item_nc['total']
+                    item_nc['subtotal_item'],
+                    item_nc['iva_item'],
+                    item_nc['total_item']
                 ))
 
             # Garantizar registro explícito en auditoría si no se disparó por trigger
@@ -3829,10 +3832,10 @@ def emitir_nota_credito(id_factura):
                     'id_factura': fac_id,
                     'factura_modificada': fac_numero,
                     'motivo': motivo_final,
-                    'subtotal_15': subtotal_15_acum,
-                    'iva': iva_acum,
-                    'total': total_acum,
-                    'items_devueltos': len(lineas_devolucion)
+                    'subtotal': subtotal_devuelto,
+                    'iva': iva_devuelto,
+                    'total': total_devuelto,
+                    'items_devueltos': len(items_devueltos)
                 }, ensure_ascii=False)
                 cursor.execute('''
                     INSERT INTO public.auditoria (fecha_hora, usuario, tabla_afectada, operacion, id_registro, datos_previos, datos_nuevos)
@@ -4053,8 +4056,8 @@ def descargar_nota_credito(id_nc):
                    dnc.cantidad,
                    dnc.precio_unitario,
                    dnc.subtotal,
-                   ROUND(dnc.subtotal * 0.15, 2) AS iva,
-                   ROUND(dnc.subtotal * 1.15, 2) AS total
+                   dnc.iva,
+                   dnc.total
             FROM public.detalle_notas_credito dnc
             LEFT JOIN public.productos p ON dnc.id_producto = p.id
             WHERE dnc.id_nota_credito = %s;
