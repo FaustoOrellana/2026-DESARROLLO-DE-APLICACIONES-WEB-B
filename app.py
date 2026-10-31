@@ -3450,8 +3450,6 @@ def asegurar_esquema_notas_credito(conn):
                 iva NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
                 estado VARCHAR(20) NOT NULL DEFAULT 'AUTORIZADA',
-                activo BOOLEAN NOT NULL DEFAULT TRUE,
-                created_by VARCHAR(50) DEFAULT 'sistema',
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -3604,7 +3602,6 @@ def emitir_nota_credito(id_factura):
                        INNER JOIN public.notas_credito nc ON dnc.id_nota_credito = nc.id
                        WHERE nc.id_factura = df.id_factura
                          AND dnc.id_producto = df.id_producto
-                         AND nc.activo = TRUE
                    ), 0) AS cantidad_ya_devuelta
             FROM public.detalle_facturas df
             INNER JOIN public.productos p ON df.id_producto = p.id
@@ -3739,26 +3736,36 @@ def emitir_nota_credito(id_factura):
                 row_nuevo_seq = cursor.fetchone()
                 numero_nc = str(extraer_columna(row_nuevo_seq, 'siguiente_nc', 0, secuencial_nc))
 
+            # Detectar columnas existentes en public.notas_credito para inserción segura
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'notas_credito';
+            """)
+            cols_nc = {extraer_columna(c, 'column_name', 0) for c in cursor.fetchall()}
+
+            columnas_insert = ['numero_comprobante', 'id_factura', 'id_cliente', 'motivo', 'subtotal_15', 'iva', 'total']
+            valores_insert = [numero_nc, fac_id, fac_id_cliente, motivo_final, subtotal_15_acum, iva_acum, total_acum]
+
+            if 'id_usuario' in cols_nc:
+                columnas_insert.append('id_usuario')
+                valores_insert.append(int(current_user.id))
+            if 'subtotal_0' in cols_nc:
+                columnas_insert.append('subtotal_0')
+                valores_insert.append(subtotal_0_acum)
+            if 'estado' in cols_nc:
+                columnas_insert.append('estado')
+                valores_insert.append('AUTORIZADA')
+
+            placeholders_nc = ', '.join(['%s'] * len(columnas_insert))
+            cols_nc_sql = ', '.join(columnas_insert)
+
             # Insertar cabecera en public.notas_credito
-            cursor.execute('''
-                INSERT INTO public.notas_credito (
-                    numero_comprobante, id_factura, id_cliente, id_usuario,
-                    fecha_emision, motivo, subtotal_15, subtotal_0, iva, total,
-                    estado, activo, created_by
-                ) VALUES (%s, %s, %s, %s, CURRENT_DATE, %s, %s, %s, %s, %s, 'AUTORIZADA', TRUE, %s)
+            cursor.execute(f'''
+                INSERT INTO public.notas_credito ({cols_nc_sql})
+                VALUES ({placeholders_nc})
                 RETURNING id;
-            ''', (
-                numero_nc,
-                fac_id,
-                fac_id_cliente,
-                int(current_user.id),
-                motivo_final,
-                subtotal_15_acum,
-                subtotal_0_acum,
-                iva_acum,
-                total_acum,
-                current_user.usuario
-            ))
+            ''', tuple(valores_insert))
             res_nc = cursor.fetchone()
             id_nota_credito = int(extraer_columna(res_nc, 'id', 0))
 
@@ -3766,16 +3773,14 @@ def emitir_nota_credito(id_factura):
             for item_nc in lineas_devolucion:
                 cursor.execute('''
                     INSERT INTO public.detalle_notas_credito (
-                        id_nota_credito, id_producto, cantidad, precio_unitario, subtotal, iva, total
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s);
+                        id_nota_credito, id_producto, cantidad, precio_unitario, subtotal
+                    ) VALUES (%s, %s, %s, %s, %s);
                 ''', (
                     id_nota_credito,
                     item_nc['id_producto'],
                     item_nc['cantidad'],
                     item_nc['precio_unitario'],
-                    item_nc['subtotal'],
-                    item_nc['iva'],
-                    item_nc['total']
+                    item_nc['subtotal']
                 ))
 
             # Garantizar registro explícito en auditoría si no se disparó por trigger
@@ -3846,11 +3851,11 @@ def notas_credito():
         try:
             cursor = conn.cursor()
 
-            where_sql = "WHERE nc.activo = TRUE"
+            where_sql = ""
             params = []
 
             if q:
-                where_sql += """ AND (
+                where_sql = """WHERE (
                     nc.numero_comprobante ILIKE %s OR
                     f.numero ILIKE %s OR
                     c.nombre ILIKE %s OR
@@ -3884,17 +3889,21 @@ def notas_credito():
                        nc.subtotal_15,
                        nc.iva,
                        nc.total,
-                       nc.estado,
-                       COALESCE(SUM(dnc.cantidad), 0) AS total_unidades,
-                       COALESCE(STRING_AGG(CONCAT(dnc.cantidad, 'x ', p.nombre), ', '), 'Sin ítems') AS resumen_items
+                       COALESCE((
+                           SELECT SUM(dnc.cantidad)
+                           FROM public.detalle_notas_credito dnc
+                           WHERE dnc.id_nota_credito = nc.id
+                       ), 0) AS total_unidades,
+                       COALESCE((
+                           SELECT STRING_AGG(CONCAT(dnc.cantidad, 'x ', p.nombre), ', ')
+                           FROM public.detalle_notas_credito dnc
+                           LEFT JOIN public.productos p ON dnc.id_producto = p.id
+                           WHERE dnc.id_nota_credito = nc.id
+                       ), 'Sin ítems') AS resumen_items
                 FROM public.notas_credito nc
                 INNER JOIN public.facturas f ON nc.id_factura = f.id
                 INNER JOIN public.clientes c ON nc.id_cliente = c.id
-                LEFT JOIN public.detalle_notas_credito dnc ON dnc.id_nota_credito = nc.id
-                LEFT JOIN public.productos p ON dnc.id_producto = p.id
                 {where_sql}
-                GROUP BY nc.id, nc.numero_comprobante, nc.id_factura, f.numero, c.nombre, c.ruc,
-                         nc.fecha_emision, nc.motivo, nc.subtotal_15, nc.iva, nc.total, nc.estado
                 ORDER BY nc.id DESC
                 LIMIT %s OFFSET %s;
             ''', tuple(params + [per_page, offset]))
@@ -3916,9 +3925,9 @@ def notas_credito():
                     'subtotal_15': float(extraer_columna(r, 'subtotal_15', 8, 0.0) or 0.0),
                     'iva': float(extraer_columna(r, 'iva', 9, 0.0) or 0.0),
                     'total': float(extraer_columna(r, 'total', 10, 0.0) or 0.0),
-                    'estado': str(extraer_columna(r, 'estado', 11, 'AUTORIZADA')),
-                    'total_unidades': int(extraer_columna(r, 'total_unidades', 12, 0) or 0),
-                    'resumen_items': str(extraer_columna(r, 'resumen_items', 13, ''))
+                    'estado': 'AUTORIZADA',
+                    'total_unidades': int(extraer_columna(r, 'total_unidades', 11, 0) or 0),
+                    'resumen_items': str(extraer_columna(r, 'resumen_items', 12, ''))
                 })
         except Exception as e:
             flash(f'Error al consultar las Notas de Crédito: {e}', 'danger')
@@ -3967,7 +3976,7 @@ def descargar_nota_credito(id_nc):
                    nc.fecha_emision,
                    nc.motivo,
                    nc.subtotal_15,
-                   nc.subtotal_0,
+                   0.00 AS subtotal_0,
                    nc.iva,
                    nc.total,
                    COALESCE(c.nombre, 'Consumidor Final') AS cliente,
@@ -3977,7 +3986,7 @@ def descargar_nota_credito(id_nc):
             FROM public.notas_credito nc
             INNER JOIN public.facturas f ON nc.id_factura = f.id
             INNER JOIN public.clientes c ON nc.id_cliente = c.id
-            WHERE nc.id = %s AND nc.activo = TRUE;
+            WHERE nc.id = %s;
         ''', (id_nc,))
         fila_nc = cursor.fetchone()
         if not fila_nc:
@@ -4008,8 +4017,8 @@ def descargar_nota_credito(id_nc):
                    dnc.cantidad,
                    dnc.precio_unitario,
                    dnc.subtotal,
-                   dnc.iva,
-                   dnc.total
+                   ROUND(dnc.subtotal * 0.15, 2) AS iva,
+                   ROUND(dnc.subtotal * 1.15, 2) AS total
             FROM public.detalle_notas_credito dnc
             LEFT JOIN public.productos p ON dnc.id_producto = p.id
             WHERE dnc.id_nota_credito = %s;
